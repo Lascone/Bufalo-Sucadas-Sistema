@@ -15,7 +15,7 @@ export type AppSettings = {
   'cash.autoCloseEnabled': boolean;
   'cash.autoCloseTime': string;
   'sales.commentsEnabled': boolean;
-  /** Nomes dos sócios / quem pode receber nas vendas */
+  /** Nomes de quem pode receber nas vendas (recebedores) */
   'sales.partners': string[];
   'sync.apiBaseUrl': string;
   'sync.autoIntervalMinutes': number;
@@ -36,23 +36,31 @@ export const DEFAULT_SETTINGS: AppSettings = {
   'cash.autoCloseEnabled': true,
   'cash.autoCloseTime': '18:00',
   'sales.commentsEnabled': true,
-  'sales.partners': ['', ''],
+  'sales.partners': ['Keity', 'Steve'],
   'sync.apiBaseUrl': 'http://localhost:3000/api/v1',
   'sync.autoIntervalMinutes': 5,
 };
 
 export function getSettings(): AppSettings {
   const loaded = loadJson<Partial<AppSettings>>('settings', {});
-  const partners = Array.isArray(loaded['sales.partners'])
-    ? loaded['sales.partners']
-    : DEFAULT_SETTINGS['sales.partners'];
+  let partners = Array.isArray(loaded['sales.partners'])
+    ? loaded['sales.partners'].map((p) => String(p ?? ''))
+    : [...DEFAULT_SETTINGS['sales.partners']];
+
+  // Migração: slots vazios → Keity / Steve
+  const allBlank = partners.every((p) => !p.trim());
+  if (allBlank || partners.length === 0) {
+    partners = [...DEFAULT_SETTINGS['sales.partners']];
+  }
+
   return {
     ...DEFAULT_SETTINGS,
     ...loaded,
-    'sales.partners': partners.length >= 2 ? partners : [...partners, '', ''].slice(0, Math.max(2, partners.length)),
+    'sales.partners': partners,
   };
 }
 
+/** Recebedores ativos (nomes preenchidos). */
 export function listActivePartners(): string[] {
   return getSettings()
     ['sales.partners'].map((p) => p.trim())

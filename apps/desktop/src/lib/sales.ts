@@ -1,7 +1,6 @@
 import { loadJson, saveJson, enqueueSyncOp, newId } from './local-store';
-import { lineTotal } from './materials';
 import { ensureOpenCash, addCashMovement } from './cash';
-import { applySaleToPatio, getAvgCost } from './patio';
+import { getAvgCost } from './patio';
 import { formatItemsSummary } from './item-summary';
 
 export type SalePaymentMethod = 'PIX' | 'DINHEIRO';
@@ -32,7 +31,7 @@ export type SaleRecord = {
   customerName: string;
   notes: string;
   items: SaleItem[];
-  /** Soma dos itens antes do desconto */
+  /** Soma dos itens antes do desconto / valor do lote */
   grossTotal: number;
   discountAmount: number;
   discountReason: string;
@@ -46,6 +45,8 @@ export type SaleRecord = {
   comments: SaleComment[];
   cashPosted: boolean;
   stockWarnings: string[];
+  /** Venda por valor negociado (sem peso/kg) */
+  lotSale?: boolean;
 };
 
 const KEY = 'sales';
@@ -80,6 +81,7 @@ export function listSales(): SaleRecord[] {
           s.grossProfit ??
           items.reduce((a, i) => a + (i.grossProfit ?? 0), 0) - discountAmount,
         stockWarnings: s.stockWarnings ?? [],
+        lotSale: s.lotSale ?? items.every((i) => !i.weight),
       };
     })
     .sort((a, b) => b.soldAt.localeCompare(a.soldAt));
@@ -93,110 +95,117 @@ function persist(all: SaleRecord[]) {
   saveJson(KEY, all);
 }
 
-export function calcSaleTotal(items: Array<{ weight: number; unitPrice: number }>): number {
-  return Math.round(items.reduce((acc, i) => acc + lineTotal(i.weight, i.unitPrice), 0) * 100) / 100;
+function materialsLabel(
+  items: Array<{ materialName: string; weight: number }>,
+): string {
+  const names = [...new Set(items.map((i) => i.materialName))];
+  if (items.every((i) => !i.weight || i.weight <= 0)) {
+    return names.join(' · ');
+  }
+  return formatItemsSummary(items);
 }
 
+/**
+ * Venda simples (lote): material(is) + empresa + valor + PIX/dinheiro + quem recebeu.
+ * Não exige peso/preço por kg; pátio não é baixado automaticamente.
+ */
 export async function createSale(input: {
   customerName: string;
-  notes: string;
-  items: Array<{
+  notes?: string;
+  materials: Array<{
     materialId: string;
     materialName: string;
-    weight: number;
-    unitPrice: number;
     buyPriceRef?: number;
   }>;
   paymentMethod: SalePaymentMethod;
   receivedBy: string;
+  /** Valor negociado do lote (R$) */
+  amount: number;
   discountAmount?: number;
   discountReason?: string;
-  amountReceived?: number;
   openedBy: string;
 }): Promise<{ sale: SaleRecord; cashInfo?: string; stockWarnings: string[] }> {
-  if (!input.items.length) throw new Error('Adicione ao menos um material na venda');
+  if (!input.materials.length) {
+    throw new Error('Escolha o material vendido (ex.: Alumínio)');
+  }
   if (input.paymentMethod !== 'PIX' && input.paymentMethod !== 'DINHEIRO') {
     throw new Error('Informe se recebeu em PIX ou dinheiro');
   }
   const receivedBy = input.receivedBy.trim();
   if (!receivedBy) throw new Error('Informe quem recebeu (sócio)');
 
-  const gros = calcSaleTotal(input.items);
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('Informe o valor da venda (R$)');
+  }
+
   const discountRaw = Number(input.discountAmount) || 0;
   if (discountRaw < 0) throw new Error('Desconto inválido');
-  const discountAmount = Math.round(Math.min(discountRaw, gros) * 100) / 100;
+  const discountAmount = Math.round(Math.min(discountRaw, amount) * 100) / 100;
   const discountReason = (input.discountReason ?? '').trim();
   if (discountAmount > 0 && !discountReason) {
     throw new Error('Informe o motivo do desconto');
   }
-  const netTotal = Math.round(Math.max(0, gros - discountAmount) * 100) / 100;
-  const amountReceived =
-    input.amountReceived === undefined || Number.isNaN(input.amountReceived)
-      ? netTotal
-      : input.amountReceived;
+
+  const grossTotal = Math.round(amount * 100) / 100;
+  const netTotal = Math.round(Math.max(0, grossTotal - discountAmount) * 100) / 100;
+  const amountReceived = netTotal;
 
   const all = listSales();
   const id = newId();
   const soldAt = new Date().toISOString();
 
-  const { warnings, costs } = await applySaleToPatio({
-    saleId: id,
-    items: input.items.map((i) => ({
-      materialId: i.materialId,
-      materialName: i.materialName,
-      weight: i.weight,
-    })),
-    at: soldAt,
-  });
+  // Sem peso: não mexe no pátio (venda por valor negociado)
+  const warnings = [
+    'Pátio não alterado — venda por valor total (sem peso). Ajuste o estoque no pátio se precisar.',
+  ];
 
-  const costByMat = new Map(costs.map((c) => [c.materialId, c.avgCost]));
-  const scale = gros > 0 ? netTotal / gros : 1;
-
-  const items: SaleItem[] = input.items.map((i) => {
-    const avg = costByMat.get(i.materialId) ?? getAvgCost(i.materialId);
-    const line = lineTotal(i.weight, i.unitPrice);
-    const netLine = Math.round(line * scale * 100) / 100;
-    const netUnit = i.weight > 0 ? netLine / i.weight : i.unitPrice;
-    const grossProfit = Math.round((netUnit - avg) * i.weight * 100) / 100;
+  const share = Math.round((netTotal / input.materials.length) * 100) / 100;
+  let allocated = 0;
+  const items: SaleItem[] = input.materials.map((m, idx) => {
+    const isLast = idx === input.materials.length - 1;
+    const line = isLast
+      ? Math.round((netTotal - allocated) * 100) / 100
+      : share;
+    allocated += isLast ? 0 : share;
+    const avg = getAvgCost(m.materialId);
     return {
       id: newId(),
-      materialId: i.materialId,
-      materialName: i.materialName,
-      weight: i.weight,
-      unitPrice: i.unitPrice,
+      materialId: m.materialId,
+      materialName: m.materialName,
+      weight: 0,
+      unitPrice: 0,
       lineTotal: line,
       avgCostAtSale: avg,
-      grossProfit,
-      buyPriceRef: i.buyPriceRef ?? avg,
+      grossProfit: 0,
+      buyPriceRef: m.buyPriceRef ?? avg,
     };
   });
-
-  const grossProfit =
-    Math.round(items.reduce((a, i) => a + i.grossProfit, 0) * 100) / 100;
 
   const methodLabel = input.paymentMethod === 'PIX' ? 'PIX' : 'Dinheiro';
   const record: SaleRecord = {
     id,
     documentNumber: `V-${String(all.length + 1).padStart(6, '0')}`,
     soldAt,
-    customerName: input.customerName,
-    notes: input.notes,
+    customerName: input.customerName.trim() || 'Empresa',
+    notes: (input.notes ?? '').trim(),
     items,
-    grossTotal: gros,
+    grossTotal,
     discountAmount,
     discountReason,
     netTotal,
     amountReceived,
     paymentMethod: input.paymentMethod,
     receivedBy,
-    grossProfit,
+    grossProfit: 0,
     status: 'FINALIZED',
     comments: [],
     cashPosted: false,
     stockWarnings: warnings,
+    lotSale: true,
   };
 
-  const detail = formatItemsSummary(items);
+  const detail = `${materialsLabel(items)} · ${methodLabel} · ${receivedBy}`;
   const { cash, created } = await ensureOpenCash({ openedBy: input.openedBy });
   await addCashMovement(cash.id, {
     movementType: 'VENDA_RECEBIDA',

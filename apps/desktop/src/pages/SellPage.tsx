@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Field,
   GhostButton,
@@ -8,12 +9,7 @@ import {
   fieldClass,
 } from '../components/Page';
 import { ContextMenu, useContextMenu } from '../components/ContextMenu';
-import {
-  getMaterial,
-  lineTotal,
-  listMaterials,
-  weightFromTotal,
-} from '../lib/materials';
+import { getMaterial, listMaterials } from '../lib/materials';
 import { MaterialThumb } from '../components/MaterialThumb';
 import {
   addSaleComment,
@@ -25,25 +21,9 @@ import {
 import { downloadSalePdf } from '../lib/pdf';
 import { getSettings, listActivePartners } from '../lib/settings';
 import { useAppStore } from '../stores/app-store';
+import { cn } from '../lib/utils';
 
-type DraftItem = {
-  key: string;
-  materialId: string;
-  weight: string;
-  unitPrice: string;
-  lineTotal: string;
-};
-
-function newDraftItem(): DraftItem {
-  const first = listMaterials(true)[0];
-  return {
-    key: `${Date.now()}-${Math.random()}`,
-    materialId: first?.id ?? '',
-    weight: '',
-    unitPrice: first ? String(first.sellPrice) : '',
-    lineTotal: '',
-  };
-}
+type SellTab = 'nova' | 'historico';
 
 export function SellPage() {
   const username = useAppStore((s) => s.session.username);
@@ -52,64 +32,27 @@ export function SellPage() {
   const materials = listMaterials(true);
   const { menu, open, close } = useContextMenu();
 
+  const [tab, setTab] = useState<SellTab>('nova');
   const [sales, setSales] = useState<SaleRecord[]>(() => listSales());
   const [customerName, setCustomerName] = useState('');
-  const [notes, setNotes] = useState('');
-  const [items, setItems] = useState<DraftItem[]>(() => [newDraftItem()]);
-  const [paymentMethod, setPaymentMethod] = useState<SalePaymentMethod>('DINHEIRO');
+  const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
+  const [paymentMethod, setPaymentMethod] = useState<SalePaymentMethod>('PIX');
   const [receiverPick, setReceiverPick] = useState(() =>
     partners[0] ? partners[0] : '__other__',
   );
   const [receiverOther, setReceiverOther] = useState('');
-  const [discountAmount, setDiscountAmount] = useState('');
-  const [discountReason, setDiscountReason] = useState('');
-  const [amountReceived, setAmountReceived] = useState('');
+  const [amount, setAmount] = useState('');
+  const [notes, setNotes] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [comment, setComment] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
   const selected = sales.find((s) => s.id === selectedId) ?? null;
-  const previewTotal = useMemo(
-    () =>
-      items.reduce((acc, i) => {
-        const explicit = Number(i.lineTotal);
-        if (i.lineTotal !== '' && Number.isFinite(explicit)) return acc + explicit;
-        return acc + lineTotal(Number(i.weight) || 0, Number(i.unitPrice) || 0);
-      }, 0),
-    [items],
-  );
-  const discountNum = Number(discountAmount.replace(',', '.')) || 0;
-  const previewNet = Math.max(0, previewTotal - Math.min(discountNum, previewTotal));
 
-  const updateItem = (
-    key: string,
-    patch: Partial<DraftItem> & { editSource?: string },
-  ) => {
-    setItems((prev) =>
-      prev.map((row) => {
-        if (row.key !== key) return row;
-        const next = { ...row, ...patch };
-        if (patch.editSource === 'material' && patch.materialId) {
-          const mat = getMaterial(patch.materialId);
-          if (mat) {
-            next.unitPrice = String(mat.sellPrice);
-            const w = Number(next.weight) || 0;
-            next.lineTotal = w > 0 ? String(lineTotal(w, mat.sellPrice)) : '';
-          }
-          return next;
-        }
-        const w = Number(next.weight);
-        const p = Number(next.unitPrice);
-        const t = Number(next.lineTotal);
-        if (patch.editSource === 'weight' || patch.editSource === 'unitPrice') {
-          next.lineTotal =
-            next.weight === '' ? '' : String(lineTotal(w || 0, p || 0));
-        } else if (patch.editSource === 'total' && p > 0 && next.lineTotal !== '') {
-          next.weight = String(weightFromTotal(t, p));
-        }
-        return next;
-      }),
+  const toggleMaterial = (id: string) => {
+    setSelectedMaterialIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   };
 
@@ -121,70 +64,48 @@ export function SellPage() {
   const submit = () => {
     setError(null);
     setInfo(null);
-    const mapped = items
-      .map((i) => {
-        const mat = getMaterial(i.materialId);
-        if (!mat) return null;
-        const unitPrice = Number(i.unitPrice);
-        let weight = Number(i.weight);
-        const total = Number(i.lineTotal);
-        if ((!Number.isFinite(weight) || weight <= 0) && Number.isFinite(total) && total > 0) {
-          weight = weightFromTotal(total, unitPrice);
-        }
-        if (!Number.isFinite(weight) || weight <= 0) return null;
-        if (!Number.isFinite(unitPrice) || unitPrice < 0) return null;
-        return {
-          materialId: mat.id,
-          materialName: mat.name,
-          weight,
-          unitPrice,
-          buyPriceRef: mat.buyPrice,
-        };
-      })
-      .filter(Boolean) as Array<{
-      materialId: string;
-      materialName: string;
-      weight: number;
-      unitPrice: number;
-      buyPriceRef: number;
-    }>;
 
-    if (!mapped.length) {
-      setError('Informe peso ou total válido.');
+    const mats = selectedMaterialIds
+      .map((id) => getMaterial(id))
+      .filter(Boolean)
+      .map((m) => ({
+        materialId: m!.id,
+        materialName: m!.name,
+        buyPriceRef: m!.buyPrice,
+      }));
+
+    if (!mats.length) {
+      setError('Escolha ao menos um material (pode marcar vários).');
       return;
     }
 
-    const received =
-      amountReceived.trim() === ''
-        ? undefined
-        : Number(amountReceived.replace(',', '.'));
+    const value = Number(amount.replace(',', '.'));
+    if (!Number.isFinite(value) || value <= 0) {
+      setError('Informe o valor da venda (ex.: 1000).');
+      return;
+    }
 
     void createSale({
       customerName: customerName.trim() || 'Empresa',
-      notes,
-      items: mapped,
+      materials: mats,
+      amount: value,
       paymentMethod,
       receivedBy: resolveReceiver(),
-      discountAmount: discountNum,
-      discountReason,
-      amountReceived: received,
+      notes,
       openedBy: username,
     })
-      .then(({ sale, cashInfo, stockWarnings }) => {
+      .then(({ sale, cashInfo }) => {
         setCustomerName('');
+        setSelectedMaterialIds([]);
+        setAmount('');
         setNotes('');
-        setAmountReceived('');
-        setDiscountAmount('');
-        setDiscountReason('');
-        setItems([newDraftItem()]);
         setSelectedId(sale.id);
         setSales(listSales());
-        const warn =
-          stockWarnings.length > 0 ? ` Aviso: ${stockWarnings.join(' ')}` : '';
+        setTab('historico');
+        const matsLabel = sale.items.map((i) => i.materialName).join(', ');
         setInfo(
-          (cashInfo ??
-            `Venda ${sale.documentNumber} · ${sale.paymentMethod} · ${sale.receivedBy} · lucro R$ ${sale.grossProfit.toFixed(2)}.`) +
-            warn,
+          cashInfo ??
+            `Vendeu ${matsLabel} · ${sale.customerName} · R$ ${sale.amountReceived.toFixed(2)} · ${sale.paymentMethod === 'PIX' ? 'PIX' : 'Dinheiro'} · ${sale.receivedBy}. Já no relatório de vendas.`,
         );
       })
       .catch((e: Error) => setError(e.message));
@@ -194,7 +115,15 @@ export function SellPage() {
     <div>
       <PageHeader
         title="Vendas"
-        subtitle="Venda de estoque do pátio para empresas. Registre PIX/dinheiro, quem recebeu e descontos."
+        subtitle="Registre o lote aqui. Relatórios por período ficam em Financeiro → Vendas."
+        actions={
+          <Link
+            to="/financeiro?secao=vendas"
+            className="rounded-lg border border-emerald-500/40 px-3 py-1.5 text-sm text-emerald-300 hover:bg-emerald-500/10"
+          >
+            Relatório de vendas
+          </Link>
+        }
       />
 
       {error && (
@@ -208,326 +137,295 @@ export function SellPage() {
         </div>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <PlaceholderCard>
-          <h2 className="font-semibold">Nova venda</h2>
-          <div className="mt-3 grid gap-2">
-            <Field label="Empresa compradora">
-              <input
-                className={fieldClass}
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Nome da empresa"
-              />
-            </Field>
-            {items.map((row) => {
-              const mat = getMaterial(row.materialId);
-              return (
-                <div
-                  key={row.key}
-                  className="rounded-lg border border-white/10 p-2"
-                >
-                  <div className="mb-1 flex items-center gap-2 text-brand-400">
-                    <MaterialThumb material={mat} className="!h-5 !w-5" />
-                    <span className="text-xs text-ink-300">{mat?.name}</span>
+      <div className="flex gap-3">
+        <aside className="w-36 shrink-0 space-y-1">
+          {(
+            [
+              { id: 'nova' as const, label: 'Nova venda', hint: 'Registrar' },
+              { id: 'historico' as const, label: 'Histórico', hint: 'Lista local' },
+            ] as const
+          ).map((n) => (
+            <button
+              key={n.id}
+              type="button"
+              onClick={() => setTab(n.id)}
+              className={cn(
+                'w-full rounded-lg border px-2.5 py-2 text-left text-sm transition',
+                tab === n.id
+                  ? 'border-brand-500 bg-brand-500/15 text-ink-50'
+                  : 'border-white/10 text-ink-300 hover:border-white/25',
+              )}
+            >
+              <div className="font-medium">{n.label}</div>
+              <div className="text-[10px] text-ink-400">{n.hint}</div>
+            </button>
+          ))}
+        </aside>
+
+        <div className="min-w-0 flex-1">
+          {tab === 'nova' && (
+            <PlaceholderCard>
+              <h2 className="font-semibold">Nova venda</h2>
+              <div className="mt-3 grid gap-3">
+                <Field label="Empresa compradora">
+                  <input
+                    className={fieldClass}
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    placeholder="Ex.: Brasil Metais"
+                  />
+                </Field>
+
+                <div>
+                  <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs uppercase tracking-wide text-ink-400">
+                      Materiais do lote (multi-seleção)
+                    </p>
+                    {selectedMaterialIds.length > 0 && (
+                      <button
+                        type="button"
+                        className="text-xs text-ink-400 hover:text-ink-200"
+                        onClick={() => setSelectedMaterialIds([])}
+                      >
+                        Limpar
+                      </button>
+                    )}
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {materials.map((m) => {
+                      const on = selectedMaterialIds.includes(m.id);
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => toggleMaterial(m.id)}
+                          className={`flex items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition ${
+                            on
+                              ? 'border-emerald-500 bg-emerald-500/15 ring-1 ring-emerald-500/40'
+                              : 'border-white/10 bg-ink-900/50 hover:border-emerald-400/40'
+                          }`}
+                        >
+                          <MaterialThumb material={m} className="!h-8 !w-8" />
+                          <span className="min-w-0 flex-1 truncate text-sm text-ink-50">
+                            {m.name}
+                          </span>
+                          <span
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs ${
+                              on
+                                ? 'border-emerald-400 bg-emerald-500/30 text-emerald-200'
+                                : 'border-white/20 text-transparent'
+                            }`}
+                          >
+                            ✓
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <Field label="Valor recebido (R$)">
+                  <input
+                    className={fieldClass}
+                    inputMode="decimal"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="Ex.: 1000"
+                  />
+                </Field>
+
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Field label="Forma">
+                    <div className="flex gap-2">
+                      {(['PIX', 'DINHEIRO'] as const).map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setPaymentMethod(m)}
+                          className={`flex-1 rounded-lg border px-3 py-2 text-sm ${
+                            paymentMethod === m
+                              ? 'border-brand-500 bg-brand-500/20 text-brand-300'
+                              : 'border-white/15 text-ink-300'
+                          }`}
+                        >
+                          {m === 'PIX' ? 'PIX' : 'Dinheiro'}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                  <Field label="Recebedor">
                     <select
                       className={fieldClass}
-                      value={row.materialId}
-                      onChange={(e) =>
-                        updateItem(row.key, {
-                          materialId: e.target.value,
-                          editSource: 'material',
-                        })
-                      }
+                      value={receiverPick}
+                      onChange={(e) => setReceiverPick(e.target.value)}
                     >
-                      {materials.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name}
+                      {partners.map((p) => (
+                        <option key={p} value={p}>
+                          {p}
                         </option>
                       ))}
+                      <option value="__other__">Outro…</option>
                     </select>
-                    <input
-                      className={fieldClass}
-                      placeholder="Peso kg"
-                      value={row.weight}
-                      onChange={(e) =>
-                        updateItem(row.key, {
-                          weight: e.target.value,
-                          editSource: 'weight',
-                        })
-                      }
-                    />
-                    <input
-                      className={fieldClass}
-                      placeholder="R$/kg venda"
-                      value={row.unitPrice}
-                      onChange={(e) =>
-                        updateItem(row.key, {
-                          unitPrice: e.target.value,
-                          editSource: 'unitPrice',
-                        })
-                      }
-                    />
-                    <input
-                      className={fieldClass}
-                      placeholder="Total R$"
-                      value={row.lineTotal}
-                      onChange={(e) =>
-                        updateItem(row.key, {
-                          lineTotal: e.target.value,
-                          editSource: 'total',
-                        })
-                      }
-                    />
-                  </div>
+                    {receiverPick === '__other__' && (
+                      <input
+                        className={`${fieldClass} mt-2`}
+                        value={receiverOther}
+                        onChange={(e) => setReceiverOther(e.target.value)}
+                        placeholder="Ex.: Keity"
+                      />
+                    )}
+                  </Field>
                 </div>
-              );
-            })}
-            <GhostButton onClick={() => setItems((p) => [...p, newDraftItem()])}>
-              + Material
-            </GhostButton>
 
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Field label="Forma de recebimento">
-                <div className="flex gap-2">
-                  {(['DINHEIRO', 'PIX'] as const).map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setPaymentMethod(m)}
-                      className={`flex-1 rounded-lg border px-3 py-2 text-sm ${
-                        paymentMethod === m
-                          ? 'border-brand-500 bg-brand-500/20 text-brand-300'
-                          : 'border-white/15 text-ink-300'
-                      }`}
-                    >
-                      {m === 'PIX' ? 'PIX' : 'Dinheiro'}
-                    </button>
-                  ))}
-                </div>
-              </Field>
-              <Field label="Quem recebeu">
-                <select
-                  className={fieldClass}
-                  value={receiverPick}
-                  onChange={(e) => setReceiverPick(e.target.value)}
-                >
-                  {partners.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                  <option value="__other__">Outro…</option>
-                </select>
-                {receiverPick === '__other__' && (
+                <Field label="Obs. (opcional)">
                   <input
-                    className={`${fieldClass} mt-2`}
-                    value={receiverOther}
-                    onChange={(e) => setReceiverOther(e.target.value)}
-                    placeholder="Nome de quem recebeu"
+                    className={fieldClass}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Nota rápida"
                   />
-                )}
-                {partners.length === 0 && receiverPick !== '__other__' && (
-                  <p className="mt-1 text-xs text-amber-300">
-                    Cadastre os sócios em Configurações → Vendas.
-                  </p>
-                )}
-              </Field>
-            </div>
+                </Field>
 
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Field label="Desconto (R$)">
-                <input
-                  className={fieldClass}
-                  value={discountAmount}
-                  placeholder="0"
-                  onChange={(e) => setDiscountAmount(e.target.value)}
-                />
-              </Field>
-              <Field label="Motivo do desconto">
-                <input
-                  className={fieldClass}
-                  value={discountReason}
-                  placeholder="Ex.: umidade, qualidade, frete"
-                  onChange={(e) => setDiscountReason(e.target.value)}
-                  disabled={!discountAmount || Number(discountAmount) <= 0}
-                />
-              </Field>
-            </div>
-
-            <div className="rounded-lg border border-white/10 px-3 py-2 text-sm">
-              <div className="flex justify-between text-ink-300">
-                <span>Subtotal</span>
-                <span>R$ {previewTotal.toFixed(2)}</span>
+                <PrimaryButton onClick={submit}>Registrar venda</PrimaryButton>
               </div>
-              {discountNum > 0 && (
-                <div className="flex justify-between text-brand-400">
-                  <span>Desconto</span>
-                  <span>− R$ {Math.min(discountNum, previewTotal).toFixed(2)}</span>
-                </div>
-              )}
-              <div className="mt-1 flex justify-between text-lg font-semibold text-moss-400">
-                <span>Total</span>
-                <span>R$ {previewNet.toFixed(2)}</span>
-              </div>
-            </div>
+            </PlaceholderCard>
+          )}
 
-            <Field label="Valor recebido">
-              <input
-                className={fieldClass}
-                value={amountReceived}
-                placeholder={previewNet.toFixed(2)}
-                onChange={(e) => setAmountReceived(e.target.value)}
-              />
-            </Field>
-            <Field label="Obs.">
-              <textarea
-                className={fieldClass}
-                rows={2}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
-            </Field>
-            <PrimaryButton onClick={submit}>Finalizar venda</PrimaryButton>
-          </div>
-        </PlaceholderCard>
-
-        <PlaceholderCard>
-          <h2 className="font-semibold">Vendas recentes</h2>
-          <ul className="mt-2 max-h-[32rem] space-y-1 overflow-auto text-sm">
-            {sales.map((s) => (
-              <li
-                key={s.id}
-                className={`cursor-context-menu rounded border px-3 py-2 ${
-                  selectedId === s.id
-                    ? 'border-brand-500 bg-brand-500/15'
-                    : 'border-white/10'
-                }`}
-                onClick={() => setSelectedId(s.id)}
-                onContextMenu={(e) =>
-                  open(e, [
-                    {
-                      id: 'view',
-                      label: 'Ver',
-                      onSelect: () => setSelectedId(s.id),
-                    },
-                    {
-                      id: 'pdf',
-                      label: 'PDF',
-                      onSelect: () => downloadSalePdf(s),
-                    },
-                  ])
-                }
-              >
-                <div>
-                  {s.documentNumber} — {s.customerName} — R$ {s.netTotal.toFixed(2)}
-                </div>
-                <div className="text-xs text-ink-300">
-                  {s.paymentMethod === 'PIX' ? 'PIX' : 'Dinheiro'}
-                  {s.receivedBy ? ` · ${s.receivedBy}` : ''}
-                  {typeof s.grossProfit === 'number' ? (
-                    <span className="text-moss-400">
-                      {' '}
-                      · lucro R$ {s.grossProfit.toFixed(2)}
-                    </span>
-                  ) : null}
-                </div>
-              </li>
-            ))}
-            {sales.length === 0 && (
-              <li className="text-ink-300">Nenhuma venda ainda.</li>
-            )}
-          </ul>
-        </PlaceholderCard>
-      </div>
-
-      {selected && (
-        <div className="mt-4">
-          <PlaceholderCard>
-            <div className="flex justify-between gap-2">
-              <h2 className="font-semibold">
-                {selected.documentNumber} — {selected.customerName}
-              </h2>
-              <GhostButton onClick={() => downloadSalePdf(selected)}>PDF</GhostButton>
-            </div>
-            <p className="mt-1 text-sm text-ink-300">
-              {selected.paymentMethod === 'PIX' ? 'PIX' : 'Dinheiro'} · recebeu:{' '}
-              {selected.receivedBy || '—'}
-              {selected.discountAmount > 0
-                ? ` · desconto R$ ${selected.discountAmount.toFixed(2)}${
-                    selected.discountReason ? ` (${selected.discountReason})` : ''
-                  }`
-                : ''}
-            </p>
-            <ul className="mt-2 text-sm">
-              {(selected.items ?? []).map((i) => (
-                <li key={i.id}>
-                  {i.materialName} · {i.weight} kg · R$ {i.lineTotal.toFixed(2)}
-                  {typeof i.avgCostAtSale === 'number' ? (
-                    <span className="text-ink-300">
-                      {' '}
-                      · custo méd. R$ {i.avgCostAtSale.toFixed(2)}/kg
-                      {typeof i.grossProfit === 'number'
-                        ? ` · lucro R$ ${i.grossProfit.toFixed(2)}`
-                        : ''}
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2 text-sm text-moss-400">
-              Lucro bruto: R$ {(selected.grossProfit ?? 0).toFixed(2)}
-            </p>
-            {(selected.stockWarnings?.length ?? 0) > 0 && (
-              <p className="mt-1 text-sm text-amber-300">
-                {selected.stockWarnings.join(' ')}
-              </p>
-            )}
-
-            <div className="mt-4 border-t border-white/10 pt-3">
-              <h3 className="text-sm font-semibold text-ink-50">Comentários</h3>
-              <ul className="mt-2 max-h-40 space-y-1 overflow-auto text-sm">
-                {(selected.comments ?? []).map((c) => (
-                  <li key={c.id} className="rounded border border-white/10 px-2 py-1.5">
-                    <div className="text-xs text-ink-300">
-                      {new Date(c.createdAt).toLocaleString('pt-BR')} · {c.authorName}
-                    </div>
-                    <div className="text-ink-100">{c.body}</div>
-                  </li>
-                ))}
-                {(selected.comments ?? []).length === 0 && (
-                  <li className="text-ink-300">Nenhum comentário.</li>
-                )}
-              </ul>
-              {commentsEnabled && (
-                <div className="mt-3 flex gap-2">
-                  <input
-                    className={`flex-1 ${fieldClass}`}
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                    placeholder="Novo comentário"
-                  />
-                  <PrimaryButton
-                    onClick={() => {
-                      if (!comment.trim()) return;
-                      void addSaleComment(selected.id, comment.trim(), username).then(
-                        () => {
-                          setComment('');
-                          setSales(listSales());
-                        },
-                      );
-                    }}
+          {tab === 'historico' && (
+            <div className="grid gap-3 xl:grid-cols-[1fr_1.1fr]">
+              <PlaceholderCard className="!p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h2 className="font-semibold">Histórico</h2>
+                  <Link
+                    to="/financeiro?secao=vendas"
+                    className="text-xs text-emerald-300 hover:underline"
                   >
-                    Comentar
-                  </PrimaryButton>
+                    Abrir relatório →
+                  </Link>
                 </div>
-              )}
+                <ul className="max-h-[36rem] space-y-1 overflow-auto text-sm">
+                  {sales.map((s) => (
+                    <li
+                      key={s.id}
+                      className={`cursor-context-menu rounded-lg border px-2.5 py-2 ${
+                        selectedId === s.id
+                          ? 'border-brand-500 bg-brand-500/15'
+                          : 'border-white/10'
+                      }`}
+                      onClick={() => setSelectedId(s.id)}
+                      onContextMenu={(e) =>
+                        open(e, [
+                          {
+                            id: 'view',
+                            label: 'Ver',
+                            onSelect: () => setSelectedId(s.id),
+                          },
+                          {
+                            id: 'pdf',
+                            label: 'PDF',
+                            onSelect: () => downloadSalePdf(s),
+                          },
+                        ])
+                      }
+                    >
+                      <div className="font-medium text-ink-50">
+                        {s.items.map((i) => i.materialName).join(', ') || 'Lote'} ·{' '}
+                        {s.customerName}
+                      </div>
+                      <div className="text-xs text-emerald-300">
+                        R$ {s.amountReceived.toFixed(2)} ·{' '}
+                        {s.paymentMethod === 'PIX' ? 'PIX' : 'Dinheiro'} ·{' '}
+                        {s.receivedBy || '—'}
+                      </div>
+                      <div className="text-[10px] text-ink-400">
+                        {s.documentNumber} ·{' '}
+                        {new Date(s.soldAt).toLocaleString('pt-BR')}
+                      </div>
+                    </li>
+                  ))}
+                  {sales.length === 0 && (
+                    <li className="text-ink-300">Nenhuma venda ainda.</li>
+                  )}
+                </ul>
+              </PlaceholderCard>
+
+              <PlaceholderCard className="!p-3">
+                {!selected ? (
+                  <p className="text-sm text-ink-300">
+                    Selecione uma venda à esquerda.
+                  </p>
+                ) : (
+                  <>
+                    <div className="flex justify-between gap-2">
+                      <h2 className="font-semibold">
+                        {selected.documentNumber} — {selected.customerName}
+                      </h2>
+                      <GhostButton onClick={() => downloadSalePdf(selected)}>
+                        PDF
+                      </GhostButton>
+                    </div>
+                    <p className="mt-2 text-sm text-ink-100">
+                      {selected.items.map((i) => i.materialName).join(', ')} · R${' '}
+                      {selected.amountReceived.toFixed(2)} ·{' '}
+                      {selected.paymentMethod === 'PIX' ? 'PIX' : 'Dinheiro'} ·{' '}
+                      {selected.receivedBy}
+                    </p>
+                    <p className="mt-1 text-xs text-ink-400">
+                      {new Date(selected.soldAt).toLocaleString('pt-BR')}
+                    </p>
+                    {selected.notes && (
+                      <p className="mt-2 text-sm text-ink-300">{selected.notes}</p>
+                    )}
+                    <div className="mt-3 border-t border-white/10 pt-3">
+                      <h3 className="text-sm font-semibold">Comentários</h3>
+                      <ul className="mt-2 max-h-32 space-y-1 overflow-auto text-sm">
+                        {(selected.comments ?? []).map((c) => (
+                          <li
+                            key={c.id}
+                            className="rounded border border-white/10 px-2 py-1"
+                          >
+                            <div className="text-[10px] text-ink-400">
+                              {c.authorName} ·{' '}
+                              {new Date(c.createdAt).toLocaleString('pt-BR')}
+                            </div>
+                            {c.body}
+                          </li>
+                        ))}
+                      </ul>
+                      {commentsEnabled && (
+                        <div className="mt-2 flex gap-2">
+                          <input
+                            className={`flex-1 ${fieldClass} !py-1.5`}
+                            value={comment}
+                            onChange={(e) => setComment(e.target.value)}
+                            placeholder="Comentário"
+                          />
+                          <PrimaryButton
+                            className="!py-1.5"
+                            onClick={() => {
+                              if (!comment.trim()) return;
+                              void addSaleComment(
+                                selected.id,
+                                comment.trim(),
+                                username,
+                              ).then(() => {
+                                setComment('');
+                                setSales(listSales());
+                              });
+                            }}
+                          >
+                            OK
+                          </PrimaryButton>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </PlaceholderCard>
             </div>
-          </PlaceholderCard>
+          )}
         </div>
-      )}
+      </div>
 
       <ContextMenu menu={menu} onClose={close} />
     </div>

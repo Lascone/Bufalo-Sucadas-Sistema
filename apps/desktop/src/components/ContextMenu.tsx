@@ -45,12 +45,17 @@ export function ContextMenu({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-    const onClick = () => onClose();
+    // Evita fechar no mesmo clique que abriu o menu (⋯)
+    const t = window.setTimeout(() => {
+      window.addEventListener('click', onClose);
+      window.addEventListener('contextmenu', onClose);
+    }, 0);
     window.addEventListener('keydown', onKey);
-    window.addEventListener('click', onClick);
     return () => {
+      window.clearTimeout(t);
       window.removeEventListener('keydown', onKey);
-      window.removeEventListener('click', onClick);
+      window.removeEventListener('click', onClose);
+      window.removeEventListener('contextmenu', onClose);
     };
   }, [menu, onClose]);
 
@@ -64,7 +69,7 @@ export function ContextMenu({
   return createPortal(
     <div
       role="menu"
-      className="fixed z-[9999] min-w-[11rem] rounded-lg border border-white/15 bg-ink-800 py-1 shadow-panel"
+      className="fixed z-[9999] min-w-[10rem] rounded-md border border-white/15 bg-ink-800 py-0.5 shadow-panel"
       style={{ left, top }}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
@@ -75,12 +80,13 @@ export function ContextMenu({
           type="button"
           role="menuitem"
           disabled={item.disabled}
-          className={`block w-full px-3 py-2 text-left text-sm disabled:opacity-40 ${
+          className={`block w-full px-3 py-1.5 text-left text-sm disabled:opacity-40 ${
             item.danger
               ? 'text-red-300 hover:bg-red-950/50'
               : 'text-ink-50 hover:bg-white/10'
           }`}
-          onClick={() => {
+          onClick={(e) => {
+            e.stopPropagation();
             if (item.disabled) return;
             item.onSelect();
             onClose();

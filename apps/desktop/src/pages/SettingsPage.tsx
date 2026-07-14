@@ -179,41 +179,59 @@ export function SettingsPage() {
         </Section>
 
         <Section
-          title="Vendas"
-          hint="Sócios que recebem nas vendas e opções de comentários."
+          title="Recebedores"
+          hint="Quem pode receber nas vendas (PIX/dinheiro). Padrão: Keity e Steve — edite ou adicione mais."
         >
-          <Field label="Sócios (quem pode receber)">
+          <Field label="Nomes dos recebedores">
             <div className="grid gap-2">
-              {(form['sales.partners'] ?? ['', '']).map((name, idx) => (
-                <input
-                  key={idx}
-                  className={fieldClass}
-                  value={name}
-                  placeholder={idx === 0 ? 'Sócio 1' : idx === 1 ? 'Sócio 2' : `Sócio ${idx + 1}`}
-                  onChange={(e) => {
-                    const next = [...(form['sales.partners'] ?? ['', ''])];
-                    next[idx] = e.target.value;
-                    setField('sales.partners', next);
-                  }}
-                />
+              {(form['sales.partners'] ?? ['Keity', 'Steve']).map((name, idx) => (
+                <div key={idx} className="flex gap-2">
+                  <input
+                    className={`flex-1 ${fieldClass}`}
+                    value={name}
+                    placeholder={`Recebedor ${idx + 1}`}
+                    onChange={(e) => {
+                      const next = [...(form['sales.partners'] ?? [])];
+                      next[idx] = e.target.value;
+                      setField('sales.partners', next);
+                    }}
+                  />
+                  {(form['sales.partners']?.length ?? 0) > 1 && (
+                    <GhostButton
+                      type="button"
+                      className="!px-2 !py-1.5 text-xs"
+                      onClick={() => {
+                        const next = (form['sales.partners'] ?? []).filter(
+                          (_, i) => i !== idx,
+                        );
+                        setField(
+                          'sales.partners',
+                          next.length ? next : ['Keity', 'Steve'],
+                        );
+                      }}
+                    >
+                      Remover
+                    </GhostButton>
+                  )}
+                </div>
               ))}
               <GhostButton
                 type="button"
                 className="!py-1.5 text-xs"
                 onClick={() =>
                   setField('sales.partners', [
-                    ...(form['sales.partners'] ?? ['', '']),
+                    ...(form['sales.partners'] ?? ['Keity', 'Steve']),
                     '',
                   ])
                 }
               >
-                + Outro nome
+                + Adicionar recebedor
               </GhostButton>
             </div>
           </Field>
           <Switch
             label="Comentários nas vendas"
-            hint="Permite anotar conversas/observações depois de finalizar."
+            hint="Permite anotar observações depois de finalizar."
             checked={form['sales.commentsEnabled']}
             onChange={(v) => setField('sales.commentsEnabled', v)}
           />

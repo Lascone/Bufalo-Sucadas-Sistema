@@ -39,8 +39,9 @@ const styles = {
 export function downloadSalePdf(sale: SaleRecord) {
   const items = sale.items ?? [];
   const amountReceived = sale.amountReceived ?? sale.netTotal;
-  const grossTotal = sale.grossTotal ?? sale.netTotal;
   const methodLabel = sale.paymentMethod === 'PIX' ? 'PIX' : 'Dinheiro';
+  const materialNames = items.map((i) => i.materialName).join(', ') || '—';
+  const lotSale = sale.lotSale ?? items.every((i) => !i.weight);
   const doc = {
     pageSize: getSettings()['print.paper'] || 'A4',
     content: [
@@ -48,10 +49,11 @@ export function downloadSalePdf(sale: SaleRecord) {
       { text: 'Comprovante de Venda', style: 'heading' },
       { text: `Nº ${sale.documentNumber}` },
       { text: `Data: ${new Date(sale.soldAt).toLocaleString('pt-BR')}` },
-      { text: `Cliente: ${sale.customerName || '—'}` },
+      { text: `Empresa: ${sale.customerName || '—'}` },
+      { text: `Material: ${materialNames}` },
       { text: `Forma: ${methodLabel}` },
       { text: `Recebido por: ${sale.receivedBy || '—'}` },
-      items.length
+      !lotSale && items.length
         ? {
             table: {
               widths: ['*', 'auto', 'auto', 'auto'],
@@ -73,7 +75,6 @@ export function downloadSalePdf(sale: SaleRecord) {
             margin: [0, 10, 0, 8] as [number, number, number, number],
           }
         : null,
-      { text: `Subtotal: R$ ${grossTotal.toFixed(2)}` },
       sale.discountAmount > 0
         ? {
             text: `Desconto: R$ ${sale.discountAmount.toFixed(2)}${
@@ -81,11 +82,9 @@ export function downloadSalePdf(sale: SaleRecord) {
             }`,
           }
         : null,
-      { text: `Total: R$ ${sale.netTotal.toFixed(2)}` },
-      { text: `Valor recebido: R$ ${amountReceived.toFixed(2)}` },
       {
-        text: `Lucro bruto: R$ ${(sale.grossProfit ?? 0).toFixed(2)}`,
-        margin: [0, 0, 0, 8] as [number, number, number, number],
+        text: `Valor recebido: R$ ${amountReceived.toFixed(2)}`,
+        margin: [0, 8, 0, 8] as [number, number, number, number],
       },
       sale.notes ? { text: `Observações: ${sale.notes}` } : null,
       (sale.comments?.length ?? 0) ? { text: 'Comentários', style: 'heading' } : null,
@@ -267,4 +266,218 @@ export function exportFinanceDayCsv(day: {
   a.download = `financeiro-${day.businessDate}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function downloadBlob(filename: string, content: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function downloadPurchasesReportPdf(input: {
+  title: string;
+  filterLabel: string;
+  total: number;
+  count: number;
+  rows: Array<{
+    at: string;
+    documentNumber: string;
+    supplier: string;
+    materials: string;
+    amount: number;
+    payment: string;
+  }>;
+}) {
+  const doc = {
+    pageSize: getSettings()['print.paper'] || 'A4',
+    content: [
+      ...companyHeader(),
+      { text: input.title, style: 'heading' },
+      { text: input.filterLabel, style: 'meta' },
+      {
+        text: `Lançamentos: ${input.count} · Total: R$ ${input.total.toFixed(2)}`,
+        margin: [0, 8, 0, 8] as [number, number, number, number],
+      },
+      {
+        table: {
+          widths: ['auto', 'auto', '*', 'auto', 'auto'],
+          body: [
+            [
+              { text: 'Quando', style: 'tableHeader' },
+              { text: 'Doc', style: 'tableHeader' },
+              { text: 'Pessoa / Materiais', style: 'tableHeader' },
+              { text: 'Pago', style: 'tableHeader' },
+              { text: 'Forma', style: 'tableHeader' },
+            ],
+            ...input.rows.map((r) => [
+              r.at,
+              r.documentNumber,
+              `${r.supplier}\n${r.materials}`,
+              `R$ ${r.amount.toFixed(2)}`,
+              r.payment,
+            ]),
+          ],
+        },
+      },
+      { text: footer(), style: 'meta', margin: [0, 24, 0, 0] as [number, number, number, number] },
+    ],
+    styles,
+  };
+  pdf.createPdf(doc).download(`relatorio-compras.pdf`);
+}
+
+export function downloadSalesReportPdf(input: {
+  title: string;
+  filterLabel: string;
+  total: number;
+  count: number;
+  rows: Array<{
+    at: string;
+    documentNumber: string;
+    customer: string;
+    materials: string;
+    amount: number;
+    payment: string;
+    receivedBy: string;
+  }>;
+}) {
+  const doc = {
+    pageSize: getSettings()['print.paper'] || 'A4',
+    content: [
+      ...companyHeader(),
+      { text: input.title, style: 'heading' },
+      { text: input.filterLabel, style: 'meta' },
+      {
+        text: `Lançamentos: ${input.count} · Total: R$ ${input.total.toFixed(2)}`,
+        margin: [0, 8, 0, 8] as [number, number, number, number],
+      },
+      {
+        table: {
+          widths: ['auto', 'auto', '*', 'auto', 'auto', 'auto'],
+          body: [
+            [
+              { text: 'Quando', style: 'tableHeader' },
+              { text: 'Doc', style: 'tableHeader' },
+              { text: 'Empresa / Materiais', style: 'tableHeader' },
+              { text: 'Valor', style: 'tableHeader' },
+              { text: 'Forma', style: 'tableHeader' },
+              { text: 'Recebedor', style: 'tableHeader' },
+            ],
+            ...input.rows.map((r) => [
+              r.at,
+              r.documentNumber,
+              `${r.customer}\n${r.materials}`,
+              `R$ ${r.amount.toFixed(2)}`,
+              r.payment,
+              r.receivedBy,
+            ]),
+          ],
+        },
+      },
+      { text: footer(), style: 'meta', margin: [0, 24, 0, 0] as [number, number, number, number] },
+    ],
+    styles,
+  };
+  pdf.createPdf(doc).download(`relatorio-vendas.pdf`);
+}
+
+export function downloadFinalReportPdf(input: {
+  filterLabel: string;
+  purchasesTotal: number;
+  salesTotal: number;
+  balance: number;
+  purchaseCount: number;
+  saleCount: number;
+}) {
+  const doc = {
+    pageSize: getSettings()['print.paper'] || 'A4',
+    content: [
+      ...companyHeader(),
+      { text: 'Relatório final — Compras × Vendas', style: 'heading' },
+      { text: input.filterLabel, style: 'meta' },
+      {
+        table: {
+          widths: ['*', 'auto'],
+          body: [
+            [{ text: 'Item', style: 'tableHeader' }, { text: 'Valor', style: 'tableHeader' }],
+            [`Compras (${input.purchaseCount})`, `R$ ${input.purchasesTotal.toFixed(2)}`],
+            [`Vendas (${input.saleCount})`, `R$ ${input.salesTotal.toFixed(2)}`],
+            [
+              { text: 'Saldo operacional (vendas − compras)', bold: true },
+              `R$ ${input.balance.toFixed(2)}`,
+            ],
+          ],
+        },
+        margin: [0, 12, 0, 0] as [number, number, number, number],
+      },
+      { text: footer(), style: 'meta', margin: [0, 24, 0, 0] as [number, number, number, number] },
+    ],
+    styles,
+  };
+  pdf.createPdf(doc).download(`relatorio-final.pdf`);
+}
+
+export function exportPurchasesReportCsv(
+  rows: Array<{
+    at: string;
+    documentNumber: string;
+    supplier: string;
+    materials: string;
+    amount: number;
+    payment: string;
+  }>,
+) {
+  const lines = [
+    'quando;documento;pessoa;materiais;valor;forma',
+    ...rows.map(
+      (r) =>
+        `${r.at};${r.documentNumber};"${r.supplier.replace(/"/g, '""')}";"${r.materials.replace(/"/g, '""')}";${r.amount.toFixed(2)};${r.payment}`,
+    ),
+  ];
+  downloadBlob('relatorio-compras.csv', lines.join('\n'), 'text/csv;charset=utf-8;');
+}
+
+export function exportSalesReportCsv(
+  rows: Array<{
+    at: string;
+    documentNumber: string;
+    customer: string;
+    materials: string;
+    amount: number;
+    payment: string;
+    receivedBy: string;
+  }>,
+) {
+  const lines = [
+    'quando;documento;empresa;materiais;valor;forma;recebedor',
+    ...rows.map(
+      (r) =>
+        `${r.at};${r.documentNumber};"${r.customer.replace(/"/g, '""')}";"${r.materials.replace(/"/g, '""')}";${r.amount.toFixed(2)};${r.payment};"${r.receivedBy.replace(/"/g, '""')}"`,
+    ),
+  ];
+  downloadBlob('relatorio-vendas.csv', lines.join('\n'), 'text/csv;charset=utf-8;');
+}
+
+export function exportFinalReportCsv(input: {
+  filterLabel: string;
+  purchasesTotal: number;
+  salesTotal: number;
+  balance: number;
+  purchaseCount: number;
+  saleCount: number;
+}) {
+  const lines = [
+    'campo;valor',
+    `filtro;${input.filterLabel}`,
+    `compras_qtd;${input.purchaseCount}`,
+    `compras_total;${input.purchasesTotal.toFixed(2)}`,
+    `vendas_qtd;${input.saleCount}`,
+    `vendas_total;${input.salesTotal.toFixed(2)}`,
+    `saldo_operacional;${input.balance.toFixed(2)}`,
+  ];
+  downloadBlob('relatorio-final.csv', lines.join('\n'), 'text/csv;charset=utf-8;');
 }

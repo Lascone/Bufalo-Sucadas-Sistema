@@ -649,27 +649,20 @@ export function CashOpsPage() {
               </PrimaryButton>
             </div>
             {recentBuys.length > 0 && (
-              <ul className="mt-3 space-y-2 border-t border-white/10 pt-3">
+              <ul className="mt-2 space-y-0.5 border-t border-white/10 pt-2">
                 {recentBuys.map((p) => (
                   <li
                     key={p.id}
-                    className="rounded-lg border border-orange-500/20 bg-orange-500/5 px-3 py-2.5 text-sm"
+                    className="flex items-baseline justify-between gap-2 px-0.5 py-1 text-xs"
                   >
-                    <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <span className="font-medium text-ink-50">
-                        {p.documentNumber} · {p.supplierName}
-                      </span>
-                      <span className="text-orange-300">
-                        −R$ {p.amountPaid.toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="mt-0.5 text-xs text-ink-300">
+                    <span className="min-w-0 truncate text-ink-300">
+                      <span className="text-ink-100">{p.documentNumber}</span>
+                      {' · '}
                       {formatItemsSummary(p.items)}
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-ink-400">
-                      {new Date(p.purchasedAt).toLocaleString('pt-BR')}
-                      {p.paymentMethod ? ` · ${p.paymentMethod}` : ''}
-                    </div>
+                    </span>
+                    <span className="shrink-0 text-orange-300">
+                      −R$ {p.amountPaid.toFixed(2)}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -700,17 +693,17 @@ export function CashOpsPage() {
         )}
 
         {tab === 'movimentos' && (
-          <PlaceholderCard className="!p-4">
+          <PlaceholderCard className="!p-2">
             {!open ? (
-              <p className="py-6 text-center text-sm text-ink-300">
-                Caixa fechado. Abra o caixa para ver lançamentos.
+              <p className="py-4 text-center text-xs text-ink-300">
+                Caixa fechado.
               </p>
             ) : open.movements.length === 0 ? (
-              <p className="py-8 text-center text-sm text-ink-300">
+              <p className="py-4 text-center text-xs text-ink-300">
                 Nenhum lançamento neste caixa.
               </p>
             ) : (
-              <ul className="max-h-[32rem] space-y-2 overflow-auto">
+              <ul className="max-h-[36rem] divide-y divide-white/5 overflow-auto">
                 {[...open.movements].reverse().map((m) => {
                   const tone = movementTone(m.movementType);
                   const income = isCashIn(m.movementType);
@@ -747,69 +740,63 @@ export function CashOpsPage() {
                       },
                     },
                   ];
+                  const time = new Date(m.movedAt).toLocaleTimeString('pt-BR', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  });
                   return (
                     <li
                       key={m.id}
-                      className={`rounded-xl border border-white/10 bg-ink-900/40 px-3 py-3 ${tone.row ?? ''}`}
+                      className={`group flex cursor-context-menu items-center gap-2 px-1.5 py-1 hover:bg-white/[0.04] ${tone.row ?? ''}`}
                       onContextMenu={(e) => openMenu(e, actions)}
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span
-                              className={`rounded-md px-2 py-0.5 text-xs font-medium ${tone.badge}`}
-                            >
-                              {movementLabel(m.movementType)}
-                            </span>
-                            {m.paymentMethod && (
-                              <span className="text-xs text-ink-400">
-                                {m.paymentMethod}
-                              </span>
-                            )}
-                            <span className="text-xs text-ink-400">
-                              {new Date(m.movedAt).toLocaleString('pt-BR')}
-                            </span>
-                          </div>
-                          <div className="mt-1.5 text-sm text-ink-100">
-                            {m.description}
-                          </div>
-                          {m.detail && (
-                            <div className="mt-1 text-xs text-ink-300">{m.detail}</div>
-                          )}
-                          {m.notes ? (
-                            <div className="mt-1 whitespace-pre-wrap text-xs text-ink-400">
-                              {m.notes}
-                            </div>
-                          ) : null}
-                        </div>
-                        <div className="flex shrink-0 items-start gap-2">
-                          <span className={`pt-0.5 text-sm font-semibold ${tone.amount}`}>
-                            {income ? '+' : '−'}R$ {m.amount.toFixed(2)}
-                          </span>
-                          <button
-                            type="button"
-                            className="rounded-md border border-white/10 p-1.5 text-ink-300 hover:border-white/25 hover:bg-white/5 hover:text-ink-50"
-                            title="Menu"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const rect = (
-                                e.currentTarget as HTMLButtonElement
-                              ).getBoundingClientRect();
-                              openAt(rect.left, rect.bottom + 4, actions);
-                            }}
-                          >
-                            <MoreHorizontal className="h-4 w-4" />
-                          </button>
-                        </div>
+                      <span
+                        className={`w-[4.25rem] shrink-0 truncate rounded px-1 py-0.5 text-center text-[10px] font-medium ${tone.badge}`}
+                        title={movementLabel(m.movementType)}
+                      >
+                        {movementLabel(m.movementType)}
+                      </span>
+                      <div className="min-w-0 flex-1 truncate text-xs text-ink-200">
+                        <span className="text-ink-100">
+                          {m.detail || m.description}
+                        </span>
+                        {m.notes ? (
+                          <span className="text-ink-400"> · {m.notes}</span>
+                        ) : null}
                       </div>
+                      <span className="shrink-0 text-[10px] text-ink-500">
+                        {time}
+                      </span>
+                      <span
+                        className={`w-20 shrink-0 text-right text-xs font-semibold tabular-nums ${tone.amount}`}
+                      >
+                        {income ? '+' : '−'}
+                        {m.amount.toFixed(2)}
+                      </span>
+                      <button
+                        type="button"
+                        className="shrink-0 rounded p-0.5 text-ink-400 opacity-70 hover:bg-white/10 hover:text-ink-50 group-hover:opacity-100"
+                        title="Menu (editar, comentário, excluir)"
+                        aria-label="Menu do movimento"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const rect = (
+                            e.currentTarget as HTMLButtonElement
+                          ).getBoundingClientRect();
+                          openAt(rect.right - 160, rect.bottom + 2, actions);
+                        }}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
                     </li>
                   );
                 })}
               </ul>
             )}
             {open && open.movements.length > 0 && (
-              <p className="mt-3 text-xs text-ink-400">
-                Menu ⋯ ou clique direito: editar · comentário · excluir
+              <p className="mt-1.5 px-1 text-[10px] text-ink-500">
+                ⋯ ou clique direito · editar · comentário · excluir
               </p>
             )}
           </PlaceholderCard>
