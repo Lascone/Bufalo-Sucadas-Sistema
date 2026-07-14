@@ -34,12 +34,22 @@ O desktop grava no SQLite local (`LOCAL_DATABASE_URL`). Sync com a API é opcion
 
 ## Releases e atualização automática
 
-```bash
-git tag v0.1.0
-git push origin v0.1.0
+O GitHub Actions de release está **desligado** (billing/limite da conta).
+
+Publicar update **na sua máquina** (sobe o `.exe` + `latest.yml` no GitHub Releases):
+
+```powershell
+# logado no gh (gh auth login)
+pwsh ./scripts/release-desktop.ps1
+# ou com bump:
+pwsh ./scripts/release-desktop.ps1 -Version 0.1.2
 ```
 
-O workflow publica o instalador NSIS. Antes do update, o desktop faz backup do SQLite.
+No app instalado (versão empacotada, não `pnpm dev`): **Configurações → Verificar atualizações**.
+
+**Repo privado:** o download do update no GitHub exige autenticação. Para testar sem token no app, deixe o repositório público ou hospede o instalador em um link HTTP aberto (S3/R2) e troque o `publish` do electron-builder para `generic`.
+
+O desktop usa `electron-updater`, faz backup do SQLite e aplica a versão nova.
 
 ## Variáveis
 

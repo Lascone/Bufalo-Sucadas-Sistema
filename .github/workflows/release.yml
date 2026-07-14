@@ -1,9 +1,13 @@
 name: Release Desktop
 
+# Desativado: billing/Actions sem cota no plano atual.
+# Use em vez disso (local, grátis se GH Releases tiver espaço):
+#   pwsh ./scripts/release-desktop.ps1
+#
+# Para reativar CI no futuro, troque workflow_dispatch pelo trigger de tags v*.
+
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -40,5 +44,5 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ferrogestor-windows
+          name: bufalo-sucata-gestor-windows
           path: apps/desktop/release/*

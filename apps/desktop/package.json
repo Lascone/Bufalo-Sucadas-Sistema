@@ -11,6 +11,7 @@
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "pack": "pnpm build && electron-builder --win nsis",
+    "release": "pnpm build && electron-builder --win nsis --publish always",
     "electron:dev": "vite"
   },
   "dependencies": {
@@ -32,6 +33,7 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@types/node": "20",
     "@types/pdfmake": "^0.3.3",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
