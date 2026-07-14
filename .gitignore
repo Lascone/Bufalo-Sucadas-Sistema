@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build
+dist/
+out/
+build/
+release/
+*.tsbuildinfo
+
+# Env & secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Databases
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Prisma
+packages/database/prisma/**/generated/
+
+# IDE / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs & coverage
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+coverage/
+.nyc_output/
+
+# Electron
+apps/desktop/dist-electron/
+apps/desktop/release/
+*.exe
+*.blockmap
+latest.yml
+
+# Test / temp
+tmp/
+temp/
+.cache/
+.turbo/
+
+# Backups
+backups/
+*.bak

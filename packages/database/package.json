@@ -1,0 +1,49 @@
+{
+  "name": "@ferrogestor/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./central": {
+      "types": "./dist/central.d.ts",
+      "import": "./dist/central.js"
+    },
+    "./local": {
+      "types": "./dist/local.d.ts",
+      "import": "./dist/local.js"
+    }
+  },
+  "scripts": {
+    "generate": "npm run generate:central && npm run generate:local",
+    "generate:central": "prisma generate --schema=prisma/central/schema.prisma",
+    "generate:local": "prisma generate --schema=prisma/local/schema.prisma",
+    "migrate:central": "prisma migrate dev --schema=prisma/central/schema.prisma --name init",
+    "migrate:local": "prisma migrate dev --schema=prisma/local/schema.prisma --name init",
+    "db:push:central": "prisma db push --schema=prisma/central/schema.prisma",
+    "db:push:local": "prisma db push --schema=prisma/local/schema.prisma",
+    "migrate:central:deploy": "prisma migrate deploy --schema=prisma/central/schema.prisma",
+    "migrate:local:deploy": "prisma migrate deploy --schema=prisma/local/schema.prisma",
+    "seed": "tsx src/seed.ts",
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "argon2": "^0.41.1",
+    "prisma": "^6.3.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  },
+  "prisma": {
+    "seed": "tsx src/seed.ts"
+  }
+}

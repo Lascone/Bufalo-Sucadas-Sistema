@@ -1,0 +1,29 @@
+{
+  "name": "ferrogestor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FerroGestor — sistema de gestão para ferro-velho e recicláveis (Bufalo Sucatas)",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter @ferrogestor/server --filter @ferrogestor/desktop run dev",
+    "dev:server": "pnpm --filter @ferrogestor/server dev",
+    "dev:desktop": "pnpm --filter @ferrogestor/desktop dev",
+    "build": "pnpm -r run build",
+    "build:server": "pnpm --filter @ferrogestor/server build",
+    "build:desktop": "pnpm --filter @ferrogestor/desktop build",
+    "test": "pnpm -r run test",
+    "lint": "pnpm -r run lint",
+    "db:generate": "pnpm --filter @ferrogestor/database generate",
+    "db:migrate:local": "pnpm --filter @ferrogestor/database migrate:local",
+    "db:migrate:central": "pnpm --filter @ferrogestor/database migrate:central",
+    "db:seed": "pnpm --filter @ferrogestor/database seed",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

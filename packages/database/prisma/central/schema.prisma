@@ -1,0 +1,1211 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/central"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SyncStatus {
+  SYNCED
+  PENDING
+  SYNCING
+  CONFLICT
+  ERROR
+  CANCELLED
+}
+
+enum PersonType {
+  INDIVIDUAL
+  COMPANY
+}
+
+enum ContactKind {
+  CLIENT
+  SUPPLIER
+  BUYER_COMPANY
+  CARRIER
+  EMPLOYEE
+  PARTNER
+  OTHER
+}
+
+enum MaterialUnit {
+  KG
+  TON
+  UNIT
+  BAG
+  BOX
+  LOT
+  METER
+  OTHER
+}
+
+enum PurchaseStatus {
+  DRAFT
+  AWAITING_WEIGHING
+  AWAITING_PAYMENT
+  FINALIZED
+  CANCELLED
+  REVERSED
+}
+
+enum SaleStatus {
+  QUOTE
+  ORDER
+  SEPARATION
+  AWAITING_PICKUP
+  IN_TRANSIT
+  DELIVERED
+  FINALIZED
+  CANCELLED
+  REVERSED
+}
+
+enum StockMovementType {
+  PURCHASE_IN
+  RETURN_IN
+  ADJUSTMENT_IN
+  SALE_OUT
+  LOSS_OUT
+  TRANSFER_OUT
+  TRANSFER_IN
+  REVERSAL
+  INVENTORY
+  PROCESSING
+}
+
+enum FinancialStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+  REVERSED
+}
+
+enum PaymentMethod {
+  CASH
+  PIX
+  BANK_TRANSFER
+  CHECK
+  CREDIT_CARD
+  DEBIT_CARD
+  CREDIT
+  OTHER
+}
+
+enum SyncAction {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+}
+
+enum ConflictResolution {
+  KEEP_LOCAL
+  KEEP_SERVER
+  MERGE
+  PENDING
+}
+
+model Company {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String?
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  legalName          String
+  tradeName          String?
+  documentCnpj       String?   @unique
+  stateRegistration  String?
+  phone              String?
+  email              String?
+  addressStreet      String?
+  addressNumber      String?
+  addressComplement  String?
+  addressDistrict    String?
+  addressCity        String?
+  addressState       String?
+  addressZip         String?
+  logoPath           String?
+  active             Boolean   @default(true)
+
+  branches           Branch[]
+  warehouses         Warehouse[]
+  devices            Device[]
+  users              User[]
+  contacts           Contact[]
+  materials          Material[]
+  materialCategories MaterialCategory[]
+  purchases          Purchase[]
+  sales              Sale[]
+  stockMovements     StockMovement[]
+  financialAccounts  FinancialAccount[]
+  auditLogs          AuditLog[]
+  settings           ApplicationSetting[]
+
+  @@index([syncStatus])
+  @@map("companies")
+}
+
+model Branch {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  code               String
+  name               String
+  phone              String?
+  addressCity        String?
+  addressState       String?
+  active             Boolean   @default(true)
+
+  company            Company   @relation(fields: [companyId], references: [id])
+  warehouses         Warehouse[]
+  devices            Device[]
+  users              User[]
+  purchases          Purchase[]
+  sales              Sale[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@map("branches")
+}
+
+model Warehouse {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  code               String
+  name               String
+  locationNote       String?
+  active             Boolean   @default(true)
+
+  company            Company   @relation(fields: [companyId], references: [id])
+  branch             Branch    @relation(fields: [branchId], references: [id])
+  purchases          Purchase[]
+  stockMovements     StockMovement[]
+
+  @@unique([branchId, code])
+  @@index([companyId, branchId])
+  @@map("warehouses")
+}
+
+model Device {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(SYNCED)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  friendlyName       String
+  deviceSecretHash   String
+  lastSeenAt         DateTime?
+  blocked            Boolean   @default(false)
+  blockedReason      String?
+  appVersion         String?
+
+  company            Company   @relation(fields: [companyId], references: [id])
+  branch             Branch?   @relation(fields: [branchId], references: [id])
+  refreshTokens      RefreshToken[]
+  syncLogs           SyncLog[]
+
+  @@index([companyId])
+  @@map("devices")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  module      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String     @id @default(uuid())
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  username           String
+  passwordHash       String
+  fullName           String
+  email              String?
+  phone              String?
+  roleId             String
+  active             Boolean   @default(true)
+  failedLoginAttempts Int      @default(0)
+  lockedUntil        DateTime?
+  lastLoginAt        DateTime?
+
+  company            Company   @relation(fields: [companyId], references: [id])
+  branch             Branch?   @relation(fields: [branchId], references: [id])
+  role               Role      @relation(fields: [roleId], references: [id])
+  refreshTokens      RefreshToken[]
+  auditLogs          AuditLog[]
+
+  @@unique([companyId, username])
+  @@index([companyId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String
+  deviceId   String?
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  user       User      @relation(fields: [userId], references: [id])
+  device     Device?   @relation(fields: [deviceId], references: [id])
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model ContactType {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contacts  ContactContactType[]
+
+  @@map("contact_types")
+}
+
+model Contact {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  personType         PersonType @default(INDIVIDUAL)
+  legalName          String
+  tradeName          String?
+  cpf                String?
+  cnpj               String?
+  rg                 String?
+  stateRegistration  String?
+  phonePrimary       String?
+  phoneSecondary     String?
+  whatsapp           String?
+  email              String?
+  zipCode            String?
+  street             String?
+  number             String?
+  complement         String?
+  district           String?
+  city               String?
+  state              String?
+  notes              String?
+  creditLimit        Decimal?  @db.Decimal(18, 2)
+  preferredPayment   PaymentMethod?
+  pixKey             String?
+  bankInfo           String?
+  contactPersonName  String?
+  active             Boolean   @default(true)
+
+  company            Company   @relation(fields: [companyId], references: [id])
+  types              ContactContactType[]
+  purchasesAsSupplier Purchase[] @relation("PurchaseSupplier")
+  salesAsCustomer    Sale[]      @relation("SaleCustomer")
+  priceTables        CompanyPriceTable[]
+  credits            CompanyCredit[]
+
+  @@index([companyId, legalName])
+  @@index([companyId, cpf])
+  @@index([companyId, cnpj])
+  @@index([companyId, phonePrimary])
+  @@index([syncStatus])
+  @@map("contacts")
+}
+
+model ContactContactType {
+  id        String      @id @default(uuid())
+  contactId String
+  typeId    String
+  contact   Contact     @relation(fields: [contactId], references: [id])
+  type      ContactType @relation(fields: [typeId], references: [id])
+
+  @@unique([contactId, typeId])
+  @@map("contact_contact_types")
+}
+
+model MaterialCategory {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  code               String
+  name               String
+  description        String?
+  active             Boolean   @default(true)
+
+  company            Company   @relation(fields: [companyId], references: [id])
+  materials          Material[]
+
+  @@unique([companyId, code])
+  @@map("material_categories")
+}
+
+model Material {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  code               String
+  name               String
+  categoryId         String?
+  description        String?
+  unit               MaterialUnit @default(KG)
+  minWeight          Decimal?  @db.Decimal(18, 3)
+  defaultBuyPrice    Decimal?  @db.Decimal(18, 4)
+  defaultSellPrice   Decimal?  @db.Decimal(18, 4)
+  minStock           Decimal?  @db.Decimal(18, 3)
+  maxStock           Decimal?  @db.Decimal(18, 3)
+  warehouseLocation  String?
+  photoPath          String?
+  qualityVariant     String?
+  active             Boolean   @default(true)
+
+  company            Company   @relation(fields: [companyId], references: [id])
+  category           MaterialCategory? @relation(fields: [categoryId], references: [id])
+  prices             MaterialPrice[]
+  companyPriceTables CompanyPriceTable[]
+  purchaseItems      PurchaseItem[]
+  saleItems          SaleItem[]
+  stockMovements     StockMovement[]
+
+  @@unique([companyId, code])
+  @@index([companyId, name])
+  @@map("materials")
+}
+
+model MaterialPrice {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  materialId         String
+  buyPrice           Decimal?  @db.Decimal(18, 4)
+  sellPrice          Decimal?  @db.Decimal(18, 4)
+  validFrom          DateTime
+  validTo            DateTime?
+
+  material           Material  @relation(fields: [materialId], references: [id])
+
+  @@index([materialId, validFrom])
+  @@map("material_prices")
+}
+
+model CompanyPriceTable {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  contactId          String
+  materialId         String
+  negotiatedPrice    Decimal   @db.Decimal(18, 4)
+  validFrom          DateTime
+  validTo            DateTime?
+  minQuantity        Decimal?  @db.Decimal(18, 3)
+  paymentCondition   String?
+  freightIncluded    Boolean   @default(false)
+  notes              String?
+
+  contact            Contact   @relation(fields: [contactId], references: [id])
+  material           Material  @relation(fields: [materialId], references: [id])
+
+  @@index([contactId, materialId])
+  @@map("company_price_tables")
+}
+
+model Purchase {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  documentNumber     String
+  purchasedAt        DateTime
+  supplierId         String?
+  employeeUserId     String?
+  warehouseId        String?
+  status             PurchaseStatus @default(DRAFT)
+  paymentMethod      PaymentMethod?
+  paymentStatus      FinancialStatus @default(PENDING)
+  weighingNumber     String?
+  vehiclePlate       String?
+  driverName         String?
+  notes              String?
+  grossTotal         Decimal   @default(0) @db.Decimal(18, 2)
+  discountTotal      Decimal   @default(0) @db.Decimal(18, 2)
+  surchargeTotal     Decimal   @default(0) @db.Decimal(18, 2)
+  netTotal           Decimal   @default(0) @db.Decimal(18, 2)
+  paidAmount         Decimal   @default(0) @db.Decimal(18, 2)
+  pendingAmount      Decimal   @default(0) @db.Decimal(18, 2)
+
+  company            Company   @relation(fields: [companyId], references: [id])
+  branch             Branch    @relation(fields: [branchId], references: [id])
+  supplier           Contact?  @relation("PurchaseSupplier", fields: [supplierId], references: [id])
+  warehouse          Warehouse? @relation(fields: [warehouseId], references: [id])
+  items              PurchaseItem[]
+  weighings          Weighing[]
+
+  @@unique([companyId, branchId, documentNumber])
+  @@index([companyId, purchasedAt])
+  @@index([syncStatus])
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  purchaseId         String
+  materialId         String
+  grossWeight        Decimal?  @db.Decimal(18, 3)
+  tareWeight         Decimal?  @db.Decimal(18, 3)
+  netWeight          Decimal?  @db.Decimal(18, 3)
+  quantity           Decimal?  @db.Decimal(18, 3)
+  unitPrice          Decimal   @db.Decimal(18, 4)
+  discount           Decimal   @default(0) @db.Decimal(18, 2)
+  surcharge          Decimal   @default(0) @db.Decimal(18, 2)
+  lineTotal          Decimal   @db.Decimal(18, 2)
+  notes              String?
+
+  purchase           Purchase  @relation(fields: [purchaseId], references: [id])
+  material           Material  @relation(fields: [materialId], references: [id])
+
+  @@index([purchaseId])
+  @@map("purchase_items")
+}
+
+model Weighing {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  weighingNumber     String
+  weighedAt          DateTime
+  purchaseId         String?
+  grossWeight        Decimal   @db.Decimal(18, 3)
+  tareWeight         Decimal   @default(0) @db.Decimal(18, 3)
+  netWeight          Decimal   @db.Decimal(18, 3)
+  operatorUserId     String?
+  equipmentName      String?
+  vehiclePlate       String?
+  notes              String?
+  finalized          Boolean   @default(false)
+
+  purchase           Purchase? @relation(fields: [purchaseId], references: [id])
+
+  @@index([companyId, weighingNumber])
+  @@map("weighings")
+}
+
+model Sale {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  documentNumber     String
+  soldAt             DateTime
+  customerId         String?
+  sellerUserId       String?
+  status             SaleStatus @default(QUOTE)
+  paymentMethod      PaymentMethod?
+  paymentDueDate     DateTime?
+  carrierId          String?
+  driverName         String?
+  vehiclePlate       String?
+  notes              String?
+  grossTotal         Decimal   @default(0) @db.Decimal(18, 2)
+  discountTotal      Decimal   @default(0) @db.Decimal(18, 2)
+  freightTotal       Decimal   @default(0) @db.Decimal(18, 2)
+  taxTotal           Decimal   @default(0) @db.Decimal(18, 2)
+  netTotal           Decimal   @default(0) @db.Decimal(18, 2)
+
+  company            Company   @relation(fields: [companyId], references: [id])
+  branch             Branch    @relation(fields: [branchId], references: [id])
+  customer           Contact?  @relation("SaleCustomer", fields: [customerId], references: [id])
+  items              SaleItem[]
+
+  @@unique([companyId, branchId, documentNumber])
+  @@index([companyId, soldAt])
+  @@map("sales")
+}
+
+model SaleItem {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  saleId             String
+  materialId         String
+  weight             Decimal?  @db.Decimal(18, 3)
+  quantity           Decimal?  @db.Decimal(18, 3)
+  unitPrice          Decimal   @db.Decimal(18, 4)
+  discount           Decimal   @default(0) @db.Decimal(18, 2)
+  lineTotal          Decimal   @db.Decimal(18, 2)
+  notes              String?
+
+  sale               Sale      @relation(fields: [saleId], references: [id])
+  material           Material  @relation(fields: [materialId], references: [id])
+
+  @@index([saleId])
+  @@map("sale_items")
+}
+
+model StockMovement {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  materialId         String
+  warehouseId        String?
+  movementType       StockMovementType
+  quantity           Decimal?  @db.Decimal(18, 3)
+  weight             Decimal?  @db.Decimal(18, 3)
+  location           String?
+  sourceDocumentType String?
+  sourceDocumentId   String?
+  notes              String?
+  movedAt            DateTime  @default(now())
+
+  company            Company   @relation(fields: [companyId], references: [id])
+  material           Material  @relation(fields: [materialId], references: [id])
+  warehouse          Warehouse? @relation(fields: [warehouseId], references: [id])
+
+  @@index([companyId, materialId, movedAt])
+  @@index([originOperationId])
+  @@map("stock_movements")
+}
+
+model StockProcessing {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  sourceMaterialId   String
+  sourceWeight       Decimal   @db.Decimal(18, 3)
+  resultPayload      Json
+  lossWeight         Decimal   @default(0) @db.Decimal(18, 3)
+  yieldPercent       Decimal?  @db.Decimal(8, 4)
+  notes              String?
+  processedAt        DateTime  @default(now())
+
+  @@index([companyId, processedAt])
+  @@map("stock_processing")
+}
+
+model FinancialAccount {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  name               String
+  accountType        String
+  bankName           String?
+  agency             String?
+  accountNumber      String?
+  active             Boolean   @default(true)
+
+  company            Company   @relation(fields: [companyId], references: [id])
+  transactions       FinancialTransaction[]
+
+  @@index([companyId])
+  @@map("financial_accounts")
+}
+
+model FinancialTransaction {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  accountId          String?
+  description        String
+  category           String?
+  contactId          String?
+  amount             Decimal   @db.Decimal(18, 2)
+  direction          String
+  issuedAt           DateTime?
+  dueAt              DateTime?
+  paidAt             DateTime?
+  paymentMethod      PaymentMethod?
+  documentRef        String?
+  notes              String?
+  status             FinancialStatus @default(PENDING)
+
+  account            FinancialAccount? @relation(fields: [accountId], references: [id])
+
+  @@index([companyId, status, dueAt])
+  @@map("financial_transactions")
+}
+
+model AccountPayable {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  description        String
+  category           String?
+  contactId          String?
+  amount             Decimal   @db.Decimal(18, 2)
+  paidAmount         Decimal   @default(0) @db.Decimal(18, 2)
+  issuedAt           DateTime
+  dueAt              DateTime
+  paidAt             DateTime?
+  paymentMethod      PaymentMethod?
+  documentRef        String?
+  notes              String?
+  status             FinancialStatus @default(PENDING)
+  sourceDocumentType String?
+  sourceDocumentId   String?
+
+  @@index([companyId, status, dueAt])
+  @@map("accounts_payable")
+}
+
+model AccountReceivable {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  description        String
+  category           String?
+  contactId          String?
+  amount             Decimal   @db.Decimal(18, 2)
+  paidAmount         Decimal   @default(0) @db.Decimal(18, 2)
+  issuedAt           DateTime
+  dueAt              DateTime
+  paidAt             DateTime?
+  paymentMethod      PaymentMethod?
+  documentRef        String?
+  notes              String?
+  status             FinancialStatus @default(PENDING)
+  sourceDocumentType String?
+  sourceDocumentId   String?
+
+  @@index([companyId, status, dueAt])
+  @@map("accounts_receivable")
+}
+
+model CompanyCredit {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  contactId          String
+  amount             Decimal   @db.Decimal(18, 2)
+  remainingBalance   Decimal   @db.Decimal(18, 2)
+  creditedAt         DateTime
+  bankName           String?
+  paymentMethod      PaymentMethod?
+  receiptNumber      String?
+  notes              String?
+  blocked            Boolean   @default(false)
+  expiresAt          DateTime?
+
+  contact            Contact   @relation(fields: [contactId], references: [id])
+  movements          CompanyCreditMovement[]
+
+  @@index([contactId])
+  @@map("company_credits")
+}
+
+model CompanyCreditMovement {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  creditId           String
+  amount             Decimal   @db.Decimal(18, 2)
+  movementType       String
+  saleId             String?
+  notes              String?
+  movedAt            DateTime  @default(now())
+
+  credit             CompanyCredit @relation(fields: [creditId], references: [id])
+
+  @@index([creditId])
+  @@map("company_credit_movements")
+}
+
+model CashRegister {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  openedByUserId     String
+  openedAt           DateTime
+  closedAt           DateTime?
+  openingBalance     Decimal   @db.Decimal(18, 2)
+  expectedBalance    Decimal?  @db.Decimal(18, 2)
+  informedBalance    Decimal?  @db.Decimal(18, 2)
+  difference         Decimal?  @db.Decimal(18, 2)
+  differenceReason   String?
+  notes              String?
+  status             String    @default("OPEN")
+
+  movements          CashRegisterMovement[]
+
+  @@index([companyId, status])
+  @@map("cash_registers")
+}
+
+model CashRegisterMovement {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  cashRegisterId     String
+  movementType       String
+  amount             Decimal   @db.Decimal(18, 2)
+  paymentMethod      PaymentMethod?
+  description        String?
+  sourceDocumentType String?
+  sourceDocumentId   String?
+  movedAt            DateTime  @default(now())
+
+  cashRegister       CashRegister @relation(fields: [cashRegisterId], references: [id])
+
+  @@index([cashRegisterId])
+  @@map("cash_register_movements")
+}
+
+model Attachment {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  entityType         String
+  entityId           String
+  fileName           String
+  mimeType           String?
+  filePath           String
+  fileSize           Int?
+  checksum           String?
+
+  @@index([entityType, entityId])
+  @@map("attachments")
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  companyId    String?
+  branchId     String?
+  deviceId     String?
+  userId       String?
+  action       String
+  entityType   String?
+  entityId     String?
+  beforeData   Json?
+  afterData    Json?
+  reason       String?
+  ipAddress    String?
+  createdAt    DateTime @default(now())
+
+  company      Company? @relation(fields: [companyId], references: [id])
+  user         User?    @relation(fields: [userId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+model SyncQueue {
+  id                 String     @id @default(uuid())
+  companyId          String
+  branchId           String?
+  deviceId           String
+  originOperationId  String     @unique
+  entityType         String
+  entityId           String
+  action             SyncAction
+  payload            Json
+  version            Int
+  status             SyncStatus @default(PENDING)
+  attempts           Int        @default(0)
+  lastError          String?
+  occurredAt         DateTime
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@index([status, createdAt])
+  @@index([deviceId, status])
+  @@map("sync_queue")
+}
+
+model SyncLog {
+  id              String   @id @default(uuid())
+  companyId       String?
+  deviceId        String?
+  direction       String
+  startedAt       DateTime
+  finishedAt      DateTime?
+  pushedCount     Int      @default(0)
+  pulledCount     Int      @default(0)
+  conflictCount   Int      @default(0)
+  errorCount      Int      @default(0)
+  success         Boolean  @default(false)
+  details         Json?
+  createdAt       DateTime @default(now())
+
+  device          Device?  @relation(fields: [deviceId], references: [id])
+
+  @@index([deviceId, startedAt])
+  @@map("sync_logs")
+}
+
+model SyncConflict {
+  id                 String             @id @default(uuid())
+  companyId          String
+  entityType         String
+  entityId           String
+  originOperationId  String?
+  localPayload       Json
+  serverPayload      Json
+  localVersion       Int
+  serverVersion      Int
+  localUserId        String?
+  serverUserId       String?
+  localUpdatedAt     DateTime?
+  serverUpdatedAt    DateTime?
+  status             ConflictResolution @default(PENDING)
+  resolution         ConflictResolution?
+  justification      String?
+  resolvedByUserId   String?
+  resolvedAt         DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@index([companyId, status])
+  @@index([entityType, entityId])
+  @@map("sync_conflicts")
+}
+
+model ApplicationSetting {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  key                String
+  value              Json
+  description        String?
+
+  company            Company   @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, key])
+  @@map("application_settings")
+}
+
+/// Registry of processed operations for idempotent sync
+model SyncOperationReceipt {
+  id                 String   @id @default(uuid())
+  originOperationId  String   @unique
+  companyId          String
+  deviceId           String
+  entityType         String
+  entityId           String
+  processedAt        DateTime @default(now())
+  result             String
+
+  @@index([companyId, processedAt])
+  @@map("sync_operation_receipts")
+}
