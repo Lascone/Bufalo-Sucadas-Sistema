@@ -1,6 +1,6 @@
 {
   "name": "@ferrogestor/desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "main": "dist-electron/main.js",
   "private": true,
   "description": "Búfalo Sucata Gestor — Bufalo Sucatas",
@@ -77,8 +77,8 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "bufalo-sucatas",
-        "repo": "ferrogestor",
+        "owner": "Lascone",
+        "repo": "Bufalo-Sucadas-Sistema",
         "releaseType": "release"
       }
     ]

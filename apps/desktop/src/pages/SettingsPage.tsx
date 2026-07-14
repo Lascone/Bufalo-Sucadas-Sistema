@@ -305,6 +305,9 @@ export function SettingsPage() {
             <p className="mt-1">
               <span className="text-ink-300">Versão:</span> {appInfo?.version}
             </p>
+            <p className="mt-1 text-xs text-moss-400">
+              Release de teste do auto-update (0.1.1).
+            </p>
             <p className="mt-1 break-all">
               <span className="text-ink-300">SQLite:</span> {appInfo?.dbPath ?? '—'}
             </p>
