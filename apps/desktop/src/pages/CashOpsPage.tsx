@@ -34,6 +34,7 @@ import {
   type CashRegisterRecord,
 } from '../lib/cash';
 import { upsertFinanceDayFromCash } from '../lib/finance';
+import { downloadCashClosePdf, shareCashClosePdfWhatsApp } from '../lib/pdf';
 import { getSettings } from '../lib/settings';
 import { CASH_SHORTCUT_HELP, useShortcuts } from '../lib/shortcuts';
 import { useAppStore } from '../stores/app-store';
@@ -847,8 +848,26 @@ export function CashOpsPage() {
         {tab === 'fechar' && open && (
           <PlaceholderCard className="!p-3">
             <p className="mb-2 text-xs text-ink-300">
-              Fecha e vai ao Financeiro (sem PDF automático).
+              Fecha o caixa. Pode gerar PDF / WhatsApp do dia antes ou depois.
             </p>
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              <GhostButton
+                className="!py-1 text-xs"
+                onClick={() => downloadCashClosePdf(open)}
+              >
+                PDF do caixa
+              </GhostButton>
+              <GhostButton
+                className="!py-1 text-xs"
+                onClick={() =>
+                  void shareCashClosePdfWhatsApp(open).then((r) =>
+                    setInfo(r.hint),
+                  )
+                }
+              >
+                WhatsApp
+              </GhostButton>
+            </div>
             <div className="flex flex-wrap gap-2">
               <input
                 ref={closeFocusRef}
@@ -877,6 +896,8 @@ export function CashOpsPage() {
                   })
                     .then(async (closed) => {
                       const day = await upsertFinanceDayFromCash(closed);
+                      setInfo('Caixa fechado.');
+                      refresh();
                       navigate(`/financeiro?dia=${day.id}`);
                     })
                     .catch((e: Error) => setError(e.message));

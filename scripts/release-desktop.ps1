@@ -25,12 +25,13 @@ $pkgRaw = Get-Content $pkgPath -Raw -Encoding UTF8
 $pkg = $pkgRaw | ConvertFrom-Json
 
 if ($Version) {
+  $utf8NoBom = New-Object System.Text.UTF8Encoding $false
   $pkgRaw = $pkgRaw -replace '"version":\s*"[^"]+"', ("`"version`": `"$Version`"")
-  Set-Content -Path $pkgPath -Value $pkgRaw -Encoding UTF8 -NoNewline
+  [System.IO.File]::WriteAllText($pkgPath, $pkgRaw, $utf8NoBom)
   $shared = Join-Path $root "packages\shared\src\constants.ts"
   $sharedRaw = Get-Content $shared -Raw -Encoding UTF8
   $sharedRaw = $sharedRaw -replace "APP_VERSION = '[^']+'", "APP_VERSION = '$Version'"
-  Set-Content -Path $shared -Value $sharedRaw -Encoding UTF8 -NoNewline
+  [System.IO.File]::WriteAllText($shared, $sharedRaw, $utf8NoBom)
   Write-Host "Version set to $Version"
   $pkg = $pkgRaw | ConvertFrom-Json
 }

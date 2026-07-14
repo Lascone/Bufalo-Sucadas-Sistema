@@ -378,8 +378,7 @@ export function SettingsPage() {
               <span className="text-ink-300">Versão:</span> {appInfo?.version}
             </p>
             <p className="mt-1 text-xs text-moss-400">
-              Update de teste 0.1.2 — se isto aparece na Sucata depois do
-              verificar atualizações, o fluxo funciona.
+              0.1.3 — corrigiu tela vazia do instalador + WhatsApp nos PDFs.
             </p>
             <p className="mt-1 break-all">
               <span className="text-ink-300">SQLite:</span> {appInfo?.dbPath ?? '—'}

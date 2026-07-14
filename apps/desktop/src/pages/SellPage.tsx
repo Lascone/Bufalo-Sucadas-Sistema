@@ -18,7 +18,7 @@ import {
   type SalePaymentMethod,
   type SaleRecord,
 } from '../lib/sales';
-import { downloadSalePdf } from '../lib/pdf';
+import { downloadSalePdf, shareSalePdfWhatsApp } from '../lib/pdf';
 import { getSettings, listActivePartners } from '../lib/settings';
 import { useAppStore } from '../stores/app-store';
 import { cn } from '../lib/utils';
@@ -325,6 +325,15 @@ export function SellPage() {
                             label: 'PDF',
                             onSelect: () => downloadSalePdf(s),
                           },
+                          {
+                            id: 'wpp',
+                            label: 'WhatsApp',
+                            onSelect: () => {
+                              void shareSalePdfWhatsApp(s).then((r) =>
+                                setInfo(r.hint),
+                              );
+                            },
+                          },
                         ])
                       }
                     >
@@ -362,6 +371,15 @@ export function SellPage() {
                       </h2>
                       <GhostButton onClick={() => downloadSalePdf(selected)}>
                         PDF
+                      </GhostButton>
+                      <GhostButton
+                        onClick={() =>
+                          void shareSalePdfWhatsApp(selected).then((r) =>
+                            setInfo(r.hint),
+                          )
+                        }
+                      >
+                        WhatsApp
                       </GhostButton>
                     </div>
                     <p className="mt-2 text-sm text-ink-100">

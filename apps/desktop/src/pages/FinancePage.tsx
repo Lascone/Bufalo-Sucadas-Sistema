@@ -40,6 +40,10 @@ import {
   exportFinalReportCsv,
   exportPurchasesReportCsv,
   exportSalesReportCsv,
+  shareFinanceDayPdfWhatsApp,
+  shareFinalReportPdfWhatsApp,
+  sharePurchasesReportPdfWhatsApp,
+  shareSalesReportPdfWhatsApp,
 } from '../lib/pdf';
 import { ContextMenu, useContextMenu } from '../components/ContextMenu';
 import {
@@ -309,13 +313,13 @@ export function FinancePage() {
       amount: p.amountPaid,
       payment: p.paymentMethod,
     }));
-    downloadPurchasesReportPdf({
+    return {
       title: 'Relatório de compras',
       filterLabel: describeFilter(filter),
       total: purchaseSummary.total,
       count: purchaseSummary.count,
       rows,
-    });
+    };
   };
 
   const exportSales = () => {
@@ -328,14 +332,16 @@ export function FinancePage() {
       payment: s.paymentMethod === 'PIX' ? 'PIX' : 'Dinheiro',
       receivedBy: s.receivedBy,
     }));
-    downloadSalesReportPdf({
+    return {
       title: 'Relatório de vendas',
       filterLabel: describeFilter(filter),
       total: salesSummary.total,
       count: salesSummary.count,
       rows,
-    });
+    };
   };
+
+  const shareHint = (hint: string) => setOk(hint);
 
   return (
     <div>
@@ -394,22 +400,26 @@ export function FinancePage() {
                   Relatório de compras
                 </h2>
                 <div className="flex gap-1.5">
-                  <GhostButton className="!py-1 text-xs" onClick={exportPurchases}>
+                  <GhostButton
+                    className="!py-1 text-xs"
+                    onClick={() => downloadPurchasesReportPdf(exportPurchases())}
+                  >
                     PDF
                   </GhostButton>
                   <GhostButton
                     className="!py-1 text-xs"
                     onClick={() =>
-                      exportPurchasesReportCsv(
-                        filteredPurchases.map((p) => ({
-                          at: new Date(p.purchasedAt).toLocaleString('pt-BR'),
-                          documentNumber: p.documentNumber,
-                          supplier: p.supplierName,
-                          materials: formatItemsSummary(p.items),
-                          amount: p.amountPaid,
-                          payment: p.paymentMethod,
-                        })),
+                      void sharePurchasesReportPdfWhatsApp(exportPurchases()).then(
+                        (r) => shareHint(r.hint),
                       )
+                    }
+                  >
+                    WhatsApp
+                  </GhostButton>
+                  <GhostButton
+                    className="!py-1 text-xs"
+                    onClick={() =>
+                      exportPurchasesReportCsv(exportPurchases().rows)
                     }
                   >
                     CSV
@@ -448,24 +458,25 @@ export function FinancePage() {
                   Relatório de vendas
                 </h2>
                 <div className="flex gap-1.5">
-                  <GhostButton className="!py-1 text-xs" onClick={exportSales}>
+                  <GhostButton
+                    className="!py-1 text-xs"
+                    onClick={() => downloadSalesReportPdf(exportSales())}
+                  >
                     PDF
                   </GhostButton>
                   <GhostButton
                     className="!py-1 text-xs"
                     onClick={() =>
-                      exportSalesReportCsv(
-                        filteredSales.map((s) => ({
-                          at: new Date(s.soldAt).toLocaleString('pt-BR'),
-                          documentNumber: s.documentNumber,
-                          customer: s.customerName,
-                          materials: s.items.map((i) => i.materialName).join(', '),
-                          amount: s.amountReceived ?? s.netTotal,
-                          payment: s.paymentMethod === 'PIX' ? 'PIX' : 'Dinheiro',
-                          receivedBy: s.receivedBy,
-                        })),
+                      void shareSalesReportPdfWhatsApp(exportSales()).then((r) =>
+                        shareHint(r.hint),
                       )
                     }
+                  >
+                    WhatsApp
+                  </GhostButton>
+                  <GhostButton
+                    className="!py-1 text-xs"
+                    onClick={() => exportSalesReportCsv(exportSales().rows)}
                   >
                     CSV
                   </GhostButton>
@@ -521,6 +532,21 @@ export function FinancePage() {
                     }
                   >
                     PDF
+                  </GhostButton>
+                  <GhostButton
+                    className="!py-1 text-xs"
+                    onClick={() =>
+                      void shareFinalReportPdfWhatsApp({
+                        filterLabel: describeFilter(filter),
+                        purchasesTotal: finalSummary.purchases.total,
+                        salesTotal: finalSummary.sales.total,
+                        balance: finalSummary.balance,
+                        purchaseCount: finalSummary.purchases.count,
+                        saleCount: finalSummary.sales.count,
+                      }).then((r) => shareHint(r.hint))
+                    }
+                  >
+                    WhatsApp
                   </GhostButton>
                   <GhostButton
                     className="!py-1 text-xs"
@@ -616,6 +642,15 @@ export function FinancePage() {
                             onSelect: () => downloadFinanceDayPdf(d),
                           },
                           {
+                            id: 'wpp',
+                            label: 'WhatsApp',
+                            onSelect: () => {
+                              void shareFinanceDayPdfWhatsApp(d).then((r) =>
+                                shareHint(r.hint),
+                              );
+                            },
+                          },
+                          {
                             id: 'csv',
                             label: 'CSV',
                             onSelect: () => exportFinanceDayCsv(d),
@@ -671,6 +706,16 @@ export function FinancePage() {
                           onClick={() => downloadFinanceDayPdf(selectedActive)}
                         >
                           PDF
+                        </GhostButton>
+                        <GhostButton
+                          className="!py-1 text-xs"
+                          onClick={() =>
+                            void shareFinanceDayPdfWhatsApp(selectedActive).then(
+                              (r) => shareHint(r.hint),
+                            )
+                          }
+                        >
+                          WhatsApp
                         </GhostButton>
                         <GhostButton
                           className="!py-1 text-xs"

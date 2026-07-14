@@ -4,6 +4,8 @@ import electron from 'vite-plugin-electron/simple';
 import path from 'node:path';
 
 export default defineConfig({
+  // Relative asset paths so packaged Electron (file://) loads the UI
+  base: './',
   plugins: [
     react(),
     electron({

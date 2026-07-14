@@ -22,6 +22,16 @@ type FerroGestorApi = {
   }) => Promise<{ photoPath: string; fullPath: string }>;
   getMaterialPhotoDataUrl: (photoPath: string) => Promise<string | null>;
   deleteMaterialPhoto: (photoPath: string) => Promise<boolean>;
+  sharePdfWhatsApp: (payload: {
+    fileName: string;
+    base64: string;
+    caption?: string;
+  }) => Promise<{
+    ok: true;
+    fullPath: string;
+    whatsapp: 'desktop' | 'protocol' | 'web';
+    hint: string;
+  }>;
 };
 
 declare global {

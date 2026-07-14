@@ -10,7 +10,7 @@ import {
   type CashRegisterRecord,
 } from '../lib/cash';
 import { getSettings } from '../lib/settings';
-import { downloadCashClosePdf } from '../lib/pdf';
+import { downloadCashClosePdf, shareCashClosePdfWhatsApp } from '../lib/pdf';
 import { useAppStore } from '../stores/app-store';
 
 export function CashPage() {
@@ -213,6 +213,15 @@ export function CashPage() {
                     onClick={() => downloadCashClosePdf(c)}
                   >
                     PDF
+                  </button>
+                  <button
+                    type="button"
+                    className="text-emerald-300 underline"
+                    onClick={() =>
+                      void shareCashClosePdfWhatsApp(c).then(() => undefined)
+                    }
+                  >
+                    WhatsApp
                   </button>
                 </li>
               ))}

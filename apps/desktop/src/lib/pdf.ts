@@ -8,10 +8,16 @@ import { calcExpected } from './cash';
 
 const pdf = pdfMake as typeof pdfMake & {
   vfs: unknown;
-  createPdf: (doc: unknown) => { download: (name: string) => void };
+  createPdf: (doc: unknown) => {
+    download: (name: string) => void;
+    getBase64: (cb: (data: string) => void) => void;
+  };
 };
 
-const fontModule = pdfFonts as { pdfMake?: { vfs: unknown }; default?: { pdfMake?: { vfs: unknown } } };
+const fontModule = pdfFonts as {
+  pdfMake?: { vfs: unknown };
+  default?: { pdfMake?: { vfs: unknown } };
+};
 pdf.vfs = fontModule.pdfMake?.vfs ?? fontModule.default?.pdfMake?.vfs ?? {};
 
 function companyHeader() {
@@ -31,18 +37,58 @@ function footer() {
 
 const styles = {
   title: { fontSize: 18, bold: true, color: '#2a4a30' },
-  heading: { fontSize: 14, bold: true, margin: [0, 10, 0, 6] as [number, number, number, number] },
+  heading: {
+    fontSize: 14,
+    bold: true,
+    margin: [0, 10, 0, 6] as [number, number, number, number],
+  },
   meta: { fontSize: 10, color: '#3a4650' },
   tableHeader: { bold: true, fillColor: '#e4ebe3' },
 };
 
-export function downloadSalePdf(sale: SaleRecord) {
+export type WhatsAppShareResult = {
+  ok: true;
+  fullPath: string;
+  whatsapp: 'desktop' | 'protocol' | 'web';
+  hint: string;
+};
+
+function pdfBase64(doc: unknown): Promise<string> {
+  return new Promise((resolve, reject) => {
+    try {
+      pdf.createPdf(doc).getBase64((data: string) => resolve(data));
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+async function sharePdfDoc(
+  doc: unknown,
+  fileName: string,
+  caption?: string,
+): Promise<WhatsAppShareResult> {
+  const base64 = await pdfBase64(doc);
+  if (window.ferrogestor?.sharePdfWhatsApp) {
+    return window.ferrogestor.sharePdfWhatsApp({ fileName, base64, caption });
+  }
+  pdf.createPdf(doc).download(fileName);
+  window.open('https://web.whatsapp.com/', '_blank', 'noopener,noreferrer');
+  return {
+    ok: true,
+    fullPath: fileName,
+    whatsapp: 'web',
+    hint: 'PDF baixado. Anexe na conversa do WhatsApp Web.',
+  };
+}
+
+function buildSaleDoc(sale: SaleRecord) {
   const items = sale.items ?? [];
   const amountReceived = sale.amountReceived ?? sale.netTotal;
   const methodLabel = sale.paymentMethod === 'PIX' ? 'PIX' : 'Dinheiro';
   const materialNames = items.map((i) => i.materialName).join(', ') || '—';
   const lotSale = sale.lotSale ?? items.every((i) => !i.weight);
-  const doc = {
+  return {
     pageSize: getSettings()['print.paper'] || 'A4',
     content: [
       ...companyHeader(),
@@ -93,16 +139,33 @@ export function downloadSalePdf(sale: SaleRecord) {
         style: 'meta',
         margin: [0, 2, 0, 2] as [number, number, number, number],
       })),
-      { text: footer(), style: 'meta', margin: [0, 24, 0, 0] as [number, number, number, number] },
+      {
+        text: footer(),
+        style: 'meta',
+        margin: [0, 24, 0, 0] as [number, number, number, number],
+      },
     ].filter(Boolean),
     styles,
   };
-  pdf.createPdf(doc).download(`venda-${sale.documentNumber}.pdf`);
 }
 
-export function downloadCashClosePdf(cash: CashRegisterRecord) {
+export function downloadSalePdf(sale: SaleRecord) {
+  pdf
+    .createPdf(buildSaleDoc(sale))
+    .download(`venda-${sale.documentNumber}.pdf`);
+}
+
+export function shareSalePdfWhatsApp(sale: SaleRecord) {
+  return sharePdfDoc(
+    buildSaleDoc(sale),
+    `venda-${sale.documentNumber}.pdf`,
+    `Venda ${sale.documentNumber} — R$ ${(sale.amountReceived ?? sale.netTotal).toFixed(2)}`,
+  );
+}
+
+function buildCashCloseDoc(cash: CashRegisterRecord) {
   const expected = cash.expectedBalance ?? calcExpected(cash);
-  const doc = {
+  return {
     pageSize: getSettings()['print.paper'] || 'A4',
     content: [
       ...companyHeader(),
@@ -116,7 +179,9 @@ export function downloadCashClosePdf(cash: CashRegisterRecord) {
       { text: `Saldo esperado: R$ ${expected.toFixed(2)}` },
       { text: `Saldo informado: R$ ${(cash.informedBalance ?? 0).toFixed(2)}` },
       { text: `Diferença: R$ ${(cash.difference ?? 0).toFixed(2)}` },
-      cash.differenceReason ? { text: `Justificativa: ${cash.differenceReason}` } : null,
+      cash.differenceReason
+        ? { text: `Justificativa: ${cash.differenceReason}` }
+        : null,
       { text: 'Movimentos', style: 'heading' },
       {
         table: {
@@ -141,10 +206,23 @@ export function downloadCashClosePdf(cash: CashRegisterRecord) {
     ].filter(Boolean),
     styles,
   };
-  pdf.createPdf(doc).download(`caixa-${cash.id.slice(0, 8)}.pdf`);
 }
 
-export function downloadFinanceDayPdf(day: {
+export function downloadCashClosePdf(cash: CashRegisterRecord) {
+  pdf
+    .createPdf(buildCashCloseDoc(cash))
+    .download(`caixa-${cash.id.slice(0, 8)}.pdf`);
+}
+
+export function shareCashClosePdfWhatsApp(cash: CashRegisterRecord) {
+  return sharePdfDoc(
+    buildCashCloseDoc(cash),
+    `caixa-${cash.id.slice(0, 8)}.pdf`,
+    'Fechamento de caixa',
+  );
+}
+
+type FinanceDayPdfInput = {
   businessDate: string;
   openedAt: string;
   closedAt: string;
@@ -170,8 +248,10 @@ export function downloadFinanceDayPdf(day: {
     amount: number;
     description: string;
   }>;
-}) {
-  const doc = {
+};
+
+function buildFinanceDayDoc(day: FinanceDayPdfInput) {
+  return {
     pageSize: getSettings()['print.paper'] || 'A4',
     content: [
       ...companyHeader(),
@@ -203,7 +283,9 @@ export function downloadFinanceDayPdf(day: {
           ],
         },
       },
-      day.differenceReason ? { text: `Justificativa: ${day.differenceReason}`, margin: [0, 8, 0, 0] } : null,
+      day.differenceReason
+        ? { text: `Justificativa: ${day.differenceReason}`, margin: [0, 8, 0, 0] }
+        : null,
       day.notes ? { text: `Observações: ${day.notes}` } : null,
       { text: 'Movimentos', style: 'heading' },
       {
@@ -229,7 +311,20 @@ export function downloadFinanceDayPdf(day: {
     ].filter(Boolean),
     styles,
   };
-  pdf.createPdf(doc).download(`financeiro-${day.businessDate}.pdf`);
+}
+
+export function downloadFinanceDayPdf(day: FinanceDayPdfInput) {
+  pdf
+    .createPdf(buildFinanceDayDoc(day))
+    .download(`financeiro-${day.businessDate}.pdf`);
+}
+
+export function shareFinanceDayPdfWhatsApp(day: FinanceDayPdfInput) {
+  return sharePdfDoc(
+    buildFinanceDayDoc(day),
+    `financeiro-${day.businessDate}.pdf`,
+    `Financeiro ${day.businessDate}`,
+  );
 }
 
 export function exportFinanceDayCsv(day: {
@@ -278,7 +373,7 @@ function downloadBlob(filename: string, content: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
-export function downloadPurchasesReportPdf(input: {
+type PurchasesReportInput = {
   title: string;
   filterLabel: string;
   total: number;
@@ -291,8 +386,10 @@ export function downloadPurchasesReportPdf(input: {
     amount: number;
     payment: string;
   }>;
-}) {
-  const doc = {
+};
+
+function buildPurchasesReportDoc(input: PurchasesReportInput) {
+  return {
     pageSize: getSettings()['print.paper'] || 'A4',
     content: [
       ...companyHeader(),
@@ -323,14 +420,29 @@ export function downloadPurchasesReportPdf(input: {
           ],
         },
       },
-      { text: footer(), style: 'meta', margin: [0, 24, 0, 0] as [number, number, number, number] },
+      {
+        text: footer(),
+        style: 'meta',
+        margin: [0, 24, 0, 0] as [number, number, number, number],
+      },
     ],
     styles,
   };
-  pdf.createPdf(doc).download(`relatorio-compras.pdf`);
 }
 
-export function downloadSalesReportPdf(input: {
+export function downloadPurchasesReportPdf(input: PurchasesReportInput) {
+  pdf.createPdf(buildPurchasesReportDoc(input)).download(`relatorio-compras.pdf`);
+}
+
+export function sharePurchasesReportPdfWhatsApp(input: PurchasesReportInput) {
+  return sharePdfDoc(
+    buildPurchasesReportDoc(input),
+    'relatorio-compras.pdf',
+    `Relatório de compras · ${input.filterLabel}`,
+  );
+}
+
+type SalesReportInput = {
   title: string;
   filterLabel: string;
   total: number;
@@ -344,8 +456,10 @@ export function downloadSalesReportPdf(input: {
     payment: string;
     receivedBy: string;
   }>;
-}) {
-  const doc = {
+};
+
+function buildSalesReportDoc(input: SalesReportInput) {
+  return {
     pageSize: getSettings()['print.paper'] || 'A4',
     content: [
       ...companyHeader(),
@@ -378,22 +492,39 @@ export function downloadSalesReportPdf(input: {
           ],
         },
       },
-      { text: footer(), style: 'meta', margin: [0, 24, 0, 0] as [number, number, number, number] },
+      {
+        text: footer(),
+        style: 'meta',
+        margin: [0, 24, 0, 0] as [number, number, number, number],
+      },
     ],
     styles,
   };
-  pdf.createPdf(doc).download(`relatorio-vendas.pdf`);
 }
 
-export function downloadFinalReportPdf(input: {
+export function downloadSalesReportPdf(input: SalesReportInput) {
+  pdf.createPdf(buildSalesReportDoc(input)).download(`relatorio-vendas.pdf`);
+}
+
+export function shareSalesReportPdfWhatsApp(input: SalesReportInput) {
+  return sharePdfDoc(
+    buildSalesReportDoc(input),
+    'relatorio-vendas.pdf',
+    `Relatório de vendas · ${input.filterLabel}`,
+  );
+}
+
+type FinalReportInput = {
   filterLabel: string;
   purchasesTotal: number;
   salesTotal: number;
   balance: number;
   purchaseCount: number;
   saleCount: number;
-}) {
-  const doc = {
+};
+
+function buildFinalReportDoc(input: FinalReportInput) {
+  return {
     pageSize: getSettings()['print.paper'] || 'A4',
     content: [
       ...companyHeader(),
@@ -403,7 +534,10 @@ export function downloadFinalReportPdf(input: {
         table: {
           widths: ['*', 'auto'],
           body: [
-            [{ text: 'Item', style: 'tableHeader' }, { text: 'Valor', style: 'tableHeader' }],
+            [
+              { text: 'Item', style: 'tableHeader' },
+              { text: 'Valor', style: 'tableHeader' },
+            ],
             [`Compras (${input.purchaseCount})`, `R$ ${input.purchasesTotal.toFixed(2)}`],
             [`Vendas (${input.saleCount})`, `R$ ${input.salesTotal.toFixed(2)}`],
             [
@@ -414,11 +548,26 @@ export function downloadFinalReportPdf(input: {
         },
         margin: [0, 12, 0, 0] as [number, number, number, number],
       },
-      { text: footer(), style: 'meta', margin: [0, 24, 0, 0] as [number, number, number, number] },
+      {
+        text: footer(),
+        style: 'meta',
+        margin: [0, 24, 0, 0] as [number, number, number, number],
+      },
     ],
     styles,
   };
-  pdf.createPdf(doc).download(`relatorio-final.pdf`);
+}
+
+export function downloadFinalReportPdf(input: FinalReportInput) {
+  pdf.createPdf(buildFinalReportDoc(input)).download(`relatorio-final.pdf`);
+}
+
+export function shareFinalReportPdfWhatsApp(input: FinalReportInput) {
+  return sharePdfDoc(
+    buildFinalReportDoc(input),
+    'relatorio-final.pdf',
+    `Relatório final · ${input.filterLabel}`,
+  );
 }
 
 export function exportPurchasesReportCsv(

@@ -12,14 +12,27 @@ import { getLocalDbPath, ensureLocalDataDir } from './local-db';
 import { getSyncSnapshot, enqueueSyncOp, runSyncCycle } from './sync-engine';
 
 const { autoUpdater } = electronUpdater;
-process.env.DIST = path.join(__dirname, '../dist');
-process.env.VITE_PUBLIC = app.isPackaged
-  ? process.env.DIST
-  : path.join(__dirname, '../public');
+
+function distRoot() {
+  if (app.isPackaged) {
+    return path.join(app.getAppPath(), 'dist');
+  }
+  return path.join(__dirname, '../dist');
+}
+
+function publicRoot() {
+  if (app.isPackaged) return distRoot();
+  return path.join(__dirname, '../public');
+}
+
+process.env.DIST = distRoot();
+process.env.VITE_PUBLIC = publicRoot();
 
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow() {
+  const dist = distRoot();
+  const pub = publicRoot();
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
@@ -27,7 +40,7 @@ function createWindow() {
     minHeight: 700,
     title: 'Búfalo Sucata Gestor',
     backgroundColor: '#0B0B0B',
-    icon: path.join(process.env.VITE_PUBLIC ?? path.join(__dirname, '../public'), 'icon.png'),
+    icon: path.join(pub, 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -41,7 +54,7 @@ function createWindow() {
   } else if (!app.isPackaged) {
     mainWindow.loadURL('http://localhost:5173');
   } else {
-    mainWindow.loadFile(path.join(process.env.DIST!, 'index.html'));
+    mainWindow.loadFile(path.join(dist, 'index.html'));
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -150,6 +163,67 @@ function registerIpc() {
     if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
     return true;
   });
+
+  ipcMain.handle(
+    'share:pdfWhatsApp',
+    async (
+      _e,
+      payload: { fileName: string; base64: string; caption?: string },
+    ) => {
+      const rawName = (payload.fileName || 'documento.pdf').replace(
+        /[\\/:*?"<>|]/g,
+        '_',
+      );
+      const fileName = rawName.toLowerCase().endsWith('.pdf')
+        ? rawName
+        : `${rawName}.pdf`;
+      const exportsDir = path.join(app.getPath('userData'), 'exports');
+      if (!fs.existsSync(exportsDir)) fs.mkdirSync(exportsDir, { recursive: true });
+      const fullPath = path.join(exportsDir, fileName);
+      fs.writeFileSync(fullPath, Buffer.from(payload.base64, 'base64'));
+
+      shell.showItemInFolder(fullPath);
+
+      const opened = await openWhatsAppPreferred(payload.caption);
+      return {
+        ok: true as const,
+        fullPath,
+        whatsapp: opened,
+        hint: 'PDF salvo. Anexe o arquivo na conversa do WhatsApp.',
+      };
+    },
+  );
+}
+
+async function openWhatsAppPreferred(
+  caption?: string,
+): Promise<'desktop' | 'protocol' | 'web'> {
+  const local = process.env.LOCALAPPDATA || '';
+  const userProfile = process.env.USERPROFILE || '';
+  const candidates = [
+    path.join(local, 'WhatsApp', 'WhatsApp.exe'),
+    path.join(local, 'Programs', 'WhatsApp', 'WhatsApp.exe'),
+    path.join(userProfile, 'AppData', 'Local', 'WhatsApp', 'WhatsApp.exe'),
+  ];
+  for (const exe of candidates) {
+    if (exe && fs.existsSync(exe)) {
+      const err = await shell.openPath(exe);
+      if (!err) return 'desktop';
+    }
+  }
+
+  try {
+    const text = caption?.trim()
+      ? `?text=${encodeURIComponent(caption.trim())}`
+      : '';
+    await shell.openExternal(`whatsapp://${text}`);
+    return 'protocol';
+  } catch {
+    // fall through
+  }
+
+  await shell.openExternal('https://web.whatsapp.com/');
+  return 'web';
 }
 
 app.whenReady().then(() => {

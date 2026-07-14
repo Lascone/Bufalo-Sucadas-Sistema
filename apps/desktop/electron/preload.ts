@@ -24,6 +24,16 @@ export type FerroGestorApi = {
   }) => Promise<{ photoPath: string; fullPath: string }>;
   getMaterialPhotoDataUrl: (photoPath: string) => Promise<string | null>;
   deleteMaterialPhoto: (photoPath: string) => Promise<boolean>;
+  sharePdfWhatsApp: (payload: {
+    fileName: string;
+    base64: string;
+    caption?: string;
+  }) => Promise<{
+    ok: true;
+    fullPath: string;
+    whatsapp: 'desktop' | 'protocol' | 'web';
+    hint: string;
+  }>;
 };
 
 const api: FerroGestorApi = {
@@ -46,6 +56,7 @@ const api: FerroGestorApi = {
     ipcRenderer.invoke('media:getMaterialPhotoDataUrl', photoPath),
   deleteMaterialPhoto: (photoPath) =>
     ipcRenderer.invoke('media:deleteMaterialPhoto', photoPath),
+  sharePdfWhatsApp: (payload) => ipcRenderer.invoke('share:pdfWhatsApp', payload),
 };
 
 contextBridge.exposeInMainWorld('ferrogestor', api);
