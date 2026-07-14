@@ -17,16 +17,19 @@ import {
   type ContactRecord,
   type ContactTypeCode,
 } from '../lib/contacts';
+import { ContextMenu, useContextMenu } from '../components/ContextMenu';
 
 export function ContactsPage() {
   const [query, setQuery] = useState('');
   const [showInactive, setShowInactive] = useState(false);
+  const [mode, setMode] = useState<'list' | 'form'>('list');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyContactForm);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   void tick;
+  const { menu, open: openCtx, close: closeCtx } = useContextMenu();
 
   const contacts = useMemo(
     () => searchContacts(query, !showInactive),
@@ -34,6 +37,14 @@ export function ContactsPage() {
   );
 
   const refresh = () => setTick((t) => t + 1);
+
+  const startNew = () => {
+    setEditingId(null);
+    setForm(emptyContactForm());
+    setMode('form');
+    setError(null);
+    setOk(null);
+  };
 
   const startEdit = (c: ContactRecord) => {
     setEditingId(c.id);
@@ -61,11 +72,13 @@ export function ContactsPage() {
       contactPersonName: c.contactPersonName,
       active: c.active,
     });
+    setMode('form');
     setError(null);
     setOk(null);
   };
 
-  const reset = () => {
+  const backToList = () => {
+    setMode('list');
     setEditingId(null);
     setForm(emptyContactForm());
   };
@@ -84,9 +97,9 @@ export function ContactsPage() {
     setOk(null);
     void upsertContact({ ...form, id: editingId ?? undefined })
       .then(() => {
-        reset();
         refresh();
         setOk(editingId ? 'Contato atualizado.' : 'Contato cadastrado.');
+        backToList();
       })
       .catch((e: Error) => setError(e.message));
   };
@@ -95,11 +108,14 @@ export function ContactsPage() {
     <div>
       <PageHeader
         title="Contatos"
-        subtitle="Clientes, fornecedores e outros — busca por nome, documento, telefone, WhatsApp ou cidade."
+        subtitle="Gerencie clientes, fornecedores e parceiros — busca por nome, documento, telefone ou cidade."
         actions={
-          editingId ? (
-            <GhostButton onClick={reset}>Novo contato</GhostButton>
-          ) : undefined
+          <div className="flex flex-wrap gap-2">
+            {mode === 'form' ? (
+              <GhostButton onClick={backToList}>Voltar à lista</GhostButton>
+            ) : null}
+            <PrimaryButton onClick={startNew}>Novo contato</PrimaryButton>
+          </div>
         }
       />
 
@@ -114,10 +130,10 @@ export function ContactsPage() {
         </div>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+      {mode === 'form' ? (
         <PlaceholderCard>
           <h2 className="font-semibold text-ink-50">
-            {editingId ? 'Editar contato' : 'Novo contato'}
+            {editingId ? 'Editar / gerenciar contato' : 'Novo contato'}
           </h2>
 
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -243,9 +259,6 @@ export function ContactsPage() {
                 onChange={(e) => setForm((f) => ({ ...f, pixKey: e.target.value }))}
               />
             </Field>
-          </div>
-
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <Field label="CEP">
               <input
                 className={fieldClass}
@@ -313,21 +326,21 @@ export function ContactsPage() {
               checked={form.active}
               onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))}
             />
-            Ativo
+            Contato ativo
           </label>
 
           <div className="mt-4 flex flex-wrap gap-2">
             <PrimaryButton onClick={save}>
               {editingId ? 'Salvar alterações' : 'Cadastrar contato'}
             </PrimaryButton>
-            {editingId && <GhostButton onClick={reset}>Cancelar</GhostButton>}
+            <GhostButton onClick={backToList}>Cancelar</GhostButton>
           </div>
         </PlaceholderCard>
-
+      ) : (
         <PlaceholderCard>
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-[12rem] flex-1">
-              <Field label="Buscar">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[14rem] flex-1">
+              <Field label="Buscar contatos">
                 <input
                   className={fieldClass}
                   placeholder="Nome, CPF, CNPJ, telefone, cidade…"
@@ -342,81 +355,136 @@ export function ContactsPage() {
                 checked={showInactive}
                 onChange={(e) => setShowInactive(e.target.checked)}
               />
-              Inativos
+              Mostrar inativos
             </label>
+            <PrimaryButton className="mb-0.5" onClick={startNew}>
+              Novo contato
+            </PrimaryButton>
           </div>
 
-          <ul className="mt-3 max-h-[40rem] space-y-2 overflow-auto text-sm">
+          <ul className="mt-4 max-h-[40rem] space-y-3 overflow-auto">
             {contacts.map((c) => (
-              <li key={c.id} className="rounded-lg border border-white/10 p-3">
-                <button
-                  type="button"
-                  className="w-full text-left"
-                  onClick={() => startEdit(c)}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-ink-50">{c.legalName}</span>
-                    {!c.active && (
-                      <span className="text-xs text-ink-300">inativo</span>
+              <li
+                key={c.id}
+                className="cursor-context-menu rounded-lg border border-white/10 bg-ink-900/40 p-4"
+                onContextMenu={(e) =>
+                  openCtx(e, [
+                    {
+                      id: 'edit',
+                      label: 'Gerenciar / Editar',
+                      onSelect: () => startEdit(c),
+                    },
+                    {
+                      id: 'toggle',
+                      label: c.active ? 'Desativar' : 'Reativar',
+                      onSelect: () => {
+                        void setContactActive(c.id, !c.active)
+                          .then(() => {
+                            refresh();
+                            setOk(c.active ? 'Contato desativado.' : 'Contato reativado.');
+                          })
+                          .catch((err: Error) => setError(err.message));
+                      },
+                    },
+                    {
+                      id: 'del',
+                      label: 'Excluir',
+                      danger: true,
+                      onSelect: () => {
+                        if (!confirm(`Excluir contato "${c.legalName}"?`)) return;
+                        void deleteContact(c.id)
+                          .then(() => {
+                            refresh();
+                            setOk('Contato excluído.');
+                          })
+                          .catch((err: Error) => setError(err.message));
+                      },
+                    },
+                  ])
+                }
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg font-medium text-ink-50">
+                        {c.legalName}
+                      </span>
+                      {!c.active && (
+                        <span className="text-xs text-ink-300">inativo</span>
+                      )}
+                    </div>
+                    {c.tradeName && (
+                      <div className="text-sm text-ink-300">{c.tradeName}</div>
                     )}
+                    <div className="mt-1 text-xs text-ink-300">
+                      {c.types
+                        .map(
+                          (t) =>
+                            CONTACT_TYPE_OPTIONS.find((o) => o.code === t)?.label ?? t,
+                        )
+                        .join(' · ')}
+                    </div>
+                    <div className="mt-1 text-sm text-ink-200">
+                      {[c.phonePrimary || c.whatsapp, c.city, c.cpf || c.cnpj]
+                        .filter(Boolean)
+                        .join(' · ') || 'Sem telefone/documento'}
+                    </div>
                   </div>
-                  {c.tradeName && (
-                    <div className="text-ink-300">{c.tradeName}</div>
-                  )}
-                  <div className="mt-1 text-xs text-ink-300">
-                    {c.types
-                      .map(
-                        (t) =>
-                          CONTACT_TYPE_OPTIONS.find((o) => o.code === t)?.label ?? t,
-                      )
-                      .join(' · ')}
+                  <div className="flex flex-wrap gap-2">
+                    <PrimaryButton
+                      className="!px-3 !py-2 text-sm"
+                      onClick={() => startEdit(c)}
+                    >
+                      Gerenciar / Editar
+                    </PrimaryButton>
+                    <GhostButton
+                      className="!px-3 !py-2 text-sm"
+                      onClick={() => {
+                        void setContactActive(c.id, !c.active)
+                          .then(() => {
+                            refresh();
+                            setOk(c.active ? 'Contato desativado.' : 'Contato reativado.');
+                          })
+                          .catch((e: Error) => setError(e.message));
+                      }}
+                    >
+                      {c.active ? 'Desativar' : 'Reativar'}
+                    </GhostButton>
+                    <GhostButton
+                      className="!px-3 !py-2 text-sm"
+                      onClick={() => {
+                        if (!confirm(`Excluir contato "${c.legalName}"?`)) return;
+                        void deleteContact(c.id)
+                          .then(() => {
+                            refresh();
+                            setOk('Contato excluído.');
+                          })
+                          .catch((e: Error) => setError(e.message));
+                      }}
+                    >
+                      Excluir
+                    </GhostButton>
                   </div>
-                  <div className="mt-1 text-ink-300">
-                    {[c.phonePrimary || c.whatsapp, c.city, c.cpf || c.cnpj]
-                      .filter(Boolean)
-                      .join(' · ') || 'Sem telefone/documento'}
-                  </div>
-                </button>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <GhostButton
-                    className="!px-2 !py-1 text-xs"
-                    onClick={() => startEdit(c)}
-                  >
-                    Editar
-                  </GhostButton>
-                  <GhostButton
-                    className="!px-2 !py-1 text-xs"
-                    onClick={() => {
-                      void setContactActive(c.id, !c.active)
-                        .then(refresh)
-                        .catch((e: Error) => setError(e.message));
-                    }}
-                  >
-                    {c.active ? 'Desativar' : 'Reativar'}
-                  </GhostButton>
-                  <GhostButton
-                    className="!px-2 !py-1 text-xs"
-                    onClick={() => {
-                      if (!confirm(`Excluir contato "${c.legalName}"?`)) return;
-                      void deleteContact(c.id)
-                        .then(() => {
-                          if (editingId === c.id) reset();
-                          refresh();
-                        })
-                        .catch((e: Error) => setError(e.message));
-                    }}
-                  >
-                    Excluir
-                  </GhostButton>
                 </div>
               </li>
             ))}
             {contacts.length === 0 && (
-              <li className="text-ink-300">Nenhum contato encontrado.</li>
+              <li className="rounded-lg border border-dashed border-white/20 px-4 py-8 text-center">
+                <p className="text-ink-200">Nenhum contato encontrado.</p>
+                <p className="mt-1 text-sm text-ink-300">
+                  Clique em <strong className="text-brand-400">Novo contato</strong> para
+                  cadastrar.
+                </p>
+                <PrimaryButton className="mt-4" onClick={startNew}>
+                  Novo contato
+                </PrimaryButton>
+              </li>
             )}
           </ul>
         </PlaceholderCard>
-      </div>
+      )}
+
+      <ContextMenu menu={menu} onClose={closeCtx} />
     </div>
   );
 }

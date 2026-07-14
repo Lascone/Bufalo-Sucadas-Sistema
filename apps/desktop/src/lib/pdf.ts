@@ -39,6 +39,8 @@ const styles = {
 export function downloadSalePdf(sale: SaleRecord) {
   const items = sale.items ?? [];
   const amountReceived = sale.amountReceived ?? sale.netTotal;
+  const grossTotal = sale.grossTotal ?? sale.netTotal;
+  const methodLabel = sale.paymentMethod === 'PIX' ? 'PIX' : 'Dinheiro';
   const doc = {
     pageSize: getSettings()['print.paper'] || 'A4',
     content: [
@@ -47,6 +49,8 @@ export function downloadSalePdf(sale: SaleRecord) {
       { text: `Nº ${sale.documentNumber}` },
       { text: `Data: ${new Date(sale.soldAt).toLocaleString('pt-BR')}` },
       { text: `Cliente: ${sale.customerName || '—'}` },
+      { text: `Forma: ${methodLabel}` },
+      { text: `Recebido por: ${sale.receivedBy || '—'}` },
       items.length
         ? {
             table: {
@@ -69,16 +73,28 @@ export function downloadSalePdf(sale: SaleRecord) {
             margin: [0, 10, 0, 8] as [number, number, number, number],
           }
         : null,
+      { text: `Subtotal: R$ ${grossTotal.toFixed(2)}` },
+      sale.discountAmount > 0
+        ? {
+            text: `Desconto: R$ ${sale.discountAmount.toFixed(2)}${
+              sale.discountReason ? ` (${sale.discountReason})` : ''
+            }`,
+          }
+        : null,
       { text: `Total: R$ ${sale.netTotal.toFixed(2)}` },
-      { text: `Valor recebido: R$ ${amountReceived.toFixed(2)}`, margin: [0, 0, 0, 8] },
+      { text: `Valor recebido: R$ ${amountReceived.toFixed(2)}` },
+      {
+        text: `Lucro bruto: R$ ${(sale.grossProfit ?? 0).toFixed(2)}`,
+        margin: [0, 0, 0, 8] as [number, number, number, number],
+      },
       sale.notes ? { text: `Observações: ${sale.notes}` } : null,
-      sale.comments.length ? { text: 'Comentários', style: 'heading' } : null,
-      ...sale.comments.map((c) => ({
+      (sale.comments?.length ?? 0) ? { text: 'Comentários', style: 'heading' } : null,
+      ...(sale.comments ?? []).map((c) => ({
         text: `${new Date(c.createdAt).toLocaleString('pt-BR')} — ${c.authorName}: ${c.body}`,
         style: 'meta',
-        margin: [0, 2, 0, 2],
+        margin: [0, 2, 0, 2] as [number, number, number, number],
       })),
-      { text: footer(), style: 'meta', margin: [0, 24, 0, 0] },
+      { text: footer(), style: 'meta', margin: [0, 24, 0, 0] as [number, number, number, number] },
     ].filter(Boolean),
     styles,
   };
@@ -175,13 +191,13 @@ export function downloadFinanceDayPdf(day: {
               { text: 'Saldo inicial', style: 'tableHeader' },
               `R$ ${day.openingBalance.toFixed(2)}`,
             ],
-            ['Vendas recebidas', `R$ ${day.totals.vendasRecebidas.toFixed(2)}`],
+            ['Vendas (entrou)', `R$ ${day.totals.vendasRecebidas.toFixed(2)}`],
             ['Despesas', `R$ ${day.totals.despesas.toFixed(2)}`],
             ['Sangrias', `R$ ${day.totals.sangrias.toFixed(2)}`],
             ['Suprimentos', `R$ ${day.totals.suprimentos.toFixed(2)}`],
             ['Entradas', `R$ ${day.totals.entradas.toFixed(2)}`],
             ['Saídas', `R$ ${day.totals.saidas.toFixed(2)}`],
-            ['Compras pagas', `R$ ${day.totals.comprasPagas.toFixed(2)}`],
+            ['Compras (saiu)', `R$ ${day.totals.comprasPagas.toFixed(2)}`],
             ['Saldo esperado', `R$ ${day.expectedBalance.toFixed(2)}`],
             ['Saldo informado', `R$ ${day.informedBalance.toFixed(2)}`],
             ['Diferença', `R$ ${day.difference.toFixed(2)}`],

@@ -13,6 +13,7 @@ import {
   listPurchases,
   type PurchaseRecord,
 } from '../lib/purchases';
+import { useAppStore } from '../stores/app-store';
 
 type DraftItem = {
   key: string;
@@ -32,13 +33,16 @@ function newDraftItem(): DraftItem {
 }
 
 export function PurchasesPage() {
+  const username = useAppStore((s) => s.session.username);
   const materials = listMaterials(true);
   const [purchases, setPurchases] = useState<PurchaseRecord[]>(() => listPurchases());
   const [supplierName, setSupplierName] = useState('');
   const [notes, setNotes] = useState('');
+  const [amountPaid, setAmountPaid] = useState('');
   const [items, setItems] = useState<DraftItem[]>(() => [newDraftItem()]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   const selected = purchases.find((p) => p.id === selectedId) ?? null;
 
@@ -69,6 +73,7 @@ export function PurchasesPage() {
 
   const submit = () => {
     setError(null);
+    setInfo(null);
     const mapped = items
       .map((i) => {
         const mat = getMaterial(i.materialId);
@@ -96,17 +101,27 @@ export function PurchasesPage() {
       return;
     }
 
+    const paidRaw = amountPaid.trim();
+    const paid = paidRaw === '' ? undefined : Number(paidRaw.replace(',', '.'));
+
     void createPurchase({
-      supplierName: supplierName || 'Fornecedor',
+      supplierName: supplierName.trim() || 'Pessoa',
       notes,
       items: mapped,
+      amountPaid: paid,
+      openedBy: username,
     })
-      .then((purchase) => {
+      .then(({ purchase, cashInfo }) => {
         setSupplierName('');
         setNotes('');
+        setAmountPaid('');
         setItems([newDraftItem()]);
         setSelectedId(purchase.id);
         refresh();
+        setInfo(
+          cashInfo ??
+            `Compra ${purchase.documentNumber} baixou o caixa (COMPRA_PAGA).`,
+        );
       })
       .catch((e: Error) => setError(e.message));
   };
@@ -114,8 +129,8 @@ export function PurchasesPage() {
   return (
     <div>
       <PageHeader
-        title="Compras"
-        subtitle="Compra de materiais: peso × preço de compra. Conferência mental na hora de vender — sem travar saldo do pátio."
+        title="Receber sucata"
+        subtitle="Pessoa traz material — você paga. Dinheiro sai do caixa (entrada no pátio)."
       />
 
       {error && (
@@ -123,15 +138,20 @@ export function PurchasesPage() {
           {error}
         </div>
       )}
+      {info && (
+        <div className="mb-4 rounded-md border border-moss-500/40 bg-moss-700/30 p-3 text-sm text-moss-400">
+          {info}
+        </div>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-2">
         <PlaceholderCard>
-          <h2 className="font-semibold text-ink-50">Nova compra</h2>
+          <h2 className="font-semibold text-ink-50">Receber agora</h2>
           <div className="mt-3 grid gap-3">
-            <Field label="Fornecedor / origem">
+            <Field label="Pessoa / placa (opcional)">
               <input
                 className={fieldClass}
-                placeholder="Nome ou descrição"
+                placeholder="Nome (opcional) — pessoa / placa"
                 value={supplierName}
                 onChange={(e) => setSupplierName(e.target.value)}
               />
@@ -216,10 +236,19 @@ export function PurchasesPage() {
 
             <div className="rounded-lg border border-brand-500/30 bg-brand-500/10 px-3 py-2">
               <div className="text-sm text-ink-200">Total da compra</div>
-              <div className="text-2xl font-semibold text-brand-300">
+              <div className="text-2xl font-semibold text-brand-400">
                 R$ {previewTotal.toFixed(2)}
               </div>
             </div>
+
+            <Field label="Valor pago (R$) — default = total">
+              <input
+                className={fieldClass}
+                value={amountPaid}
+                placeholder={previewTotal.toFixed(2)}
+                onChange={(e) => setAmountPaid(e.target.value)}
+              />
+            </Field>
 
             <Field label="Observações">
               <textarea
@@ -231,13 +260,13 @@ export function PurchasesPage() {
             </Field>
 
             <PrimaryButton onClick={submit} disabled={!materials.length}>
-              Finalizar compra
+              Finalizar recebimento
             </PrimaryButton>
           </div>
         </PlaceholderCard>
 
         <PlaceholderCard>
-          <h2 className="font-semibold text-ink-50">Compras recentes</h2>
+          <h2 className="font-semibold text-ink-50">Histórico de recebimentos</h2>
           <ul className="mt-3 max-h-[32rem] space-y-2 overflow-auto text-sm">
             {purchases.map((p) => (
               <li key={p.id}>
@@ -254,8 +283,10 @@ export function PurchasesPage() {
                     {p.documentNumber} — {p.supplierName}
                   </div>
                   <div className="text-ink-300">
-                    R$ {p.netTotal.toFixed(2)} ·{' '}
+                    R$ {p.netTotal.toFixed(2)} · pago R${' '}
+                    {(p.amountPaid ?? p.netTotal).toFixed(2)} ·{' '}
                     {new Date(p.purchasedAt).toLocaleString('pt-BR')}
+                    {p.cashPosted ? ' · no caixa' : ''}
                   </div>
                 </button>
               </li>
@@ -296,7 +327,8 @@ export function PurchasesPage() {
               </table>
             </div>
             <p className="mt-3 text-sm text-ink-200">
-              Total R$ {selected.netTotal.toFixed(2)}
+              Total R$ {selected.netTotal.toFixed(2)} · Pago R${' '}
+              {(selected.amountPaid ?? selected.netTotal).toFixed(2)}
             </p>
             {selected.notes && (
               <p className="mt-1 text-sm text-ink-300">Obs.: {selected.notes}</p>

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import {
   Field,
+  GhostButton,
   PageHeader,
   PlaceholderCard,
   PrimaryButton,
@@ -177,13 +178,54 @@ export function SettingsPage() {
           />
         </Section>
 
-        <Section title="Vendas" hint="Opções da tela Vendas e Caixa.">
+        <Section
+          title="Vendas"
+          hint="Sócios que recebem nas vendas e opções de comentários."
+        >
+          <Field label="Sócios (quem pode receber)">
+            <div className="grid gap-2">
+              {(form['sales.partners'] ?? ['', '']).map((name, idx) => (
+                <input
+                  key={idx}
+                  className={fieldClass}
+                  value={name}
+                  placeholder={idx === 0 ? 'Sócio 1' : idx === 1 ? 'Sócio 2' : `Sócio ${idx + 1}`}
+                  onChange={(e) => {
+                    const next = [...(form['sales.partners'] ?? ['', ''])];
+                    next[idx] = e.target.value;
+                    setField('sales.partners', next);
+                  }}
+                />
+              ))}
+              <GhostButton
+                type="button"
+                className="!py-1.5 text-xs"
+                onClick={() =>
+                  setField('sales.partners', [
+                    ...(form['sales.partners'] ?? ['', '']),
+                    '',
+                  ])
+                }
+              >
+                + Outro nome
+              </GhostButton>
+            </div>
+          </Field>
           <Switch
             label="Comentários nas vendas"
             hint="Permite anotar conversas/observações depois de finalizar."
             checked={form['sales.commentsEnabled']}
             onChange={(v) => setField('sales.commentsEnabled', v)}
           />
+        </Section>
+
+        <Section
+          title="Financeiro (em breve)"
+          hint="Contas a pagar e a receber — estrutura futura. Hoje use o resumo do dia na aba Financeiro."
+        >
+          <p className="text-sm text-ink-300">
+            Compra no caixa vira estoque. Lucro só aparece na venda.
+          </p>
         </Section>
 
         <Section title="Impressão" hint="Formato dos comprovantes em PDF.">

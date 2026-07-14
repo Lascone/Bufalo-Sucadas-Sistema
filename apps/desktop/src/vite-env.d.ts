@@ -15,6 +15,13 @@ type FerroGestorApi = {
   downloadUpdate: () => Promise<unknown>;
   installUpdate: () => Promise<unknown>;
   onUpdaterEvent: (channel: string, cb: (payload: unknown) => void) => () => void;
+  saveMaterialPhoto: (payload: {
+    materialId: string;
+    base64: string;
+    ext: string;
+  }) => Promise<{ photoPath: string; fullPath: string }>;
+  getMaterialPhotoDataUrl: (photoPath: string) => Promise<string | null>;
+  deleteMaterialPhoto: (photoPath: string) => Promise<boolean>;
 };
 
 declare global {

@@ -105,6 +105,51 @@ function registerIpc() {
   ipcMain.handle('updater:install', () => {
     autoUpdater.quitAndInstall(false, true);
   });
+
+  ipcMain.handle(
+    'media:saveMaterialPhoto',
+    async (
+      _e,
+      payload: { materialId: string; base64: string; ext: string },
+    ) => {
+      const mediaDir = path.join(app.getPath('userData'), 'media', 'materials');
+      if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
+      const ext = (payload.ext || 'jpg').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
+      const fileName = `${payload.materialId}.${ext}`;
+      const fullPath = path.join(mediaDir, fileName);
+      const buf = Buffer.from(payload.base64, 'base64');
+      fs.writeFileSync(fullPath, buf);
+      return { photoPath: fileName, fullPath };
+    },
+  );
+
+  ipcMain.handle('media:getMaterialPhotoDataUrl', async (_e, photoPath: string) => {
+    if (!photoPath || photoPath.includes('..') || path.isAbsolute(photoPath)) {
+      return null;
+    }
+    const fullPath = path.join(app.getPath('userData'), 'media', 'materials', photoPath);
+    if (!fs.existsSync(fullPath)) return null;
+    const buf = fs.readFileSync(fullPath);
+    const ext = path.extname(photoPath).slice(1).toLowerCase() || 'jpeg';
+    const mime =
+      ext === 'png'
+        ? 'image/png'
+        : ext === 'webp'
+          ? 'image/webp'
+          : ext === 'gif'
+            ? 'image/gif'
+            : 'image/jpeg';
+    return `data:${mime};base64,${buf.toString('base64')}`;
+  });
+
+  ipcMain.handle('media:deleteMaterialPhoto', async (_e, photoPath: string) => {
+    if (!photoPath || photoPath.includes('..') || path.isAbsolute(photoPath)) {
+      return false;
+    }
+    const fullPath = path.join(app.getPath('userData'), 'media', 'materials', photoPath);
+    if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+    return true;
+  });
 }
 
 app.whenReady().then(() => {

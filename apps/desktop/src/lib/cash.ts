@@ -13,8 +13,13 @@ export type CashMovement = {
     | 'DESPESA';
   amount: number;
   description: string;
+  notes?: string;
   paymentMethod?: string;
   movedAt: string;
+  refType?: 'PURCHASE' | 'SALE';
+  refId?: string;
+  /** Resumo humano: "Alumínio limpo 3 kg · Ferro 10 kg" */
+  detail?: string;
 };
 
 export type CashRegisterRecord = {
@@ -158,6 +163,10 @@ export async function addCashMovement(
     amount: movement.amount,
     description: movement.description,
     paymentMethod: movement.paymentMethod,
+    notes: movement.notes,
+    refType: movement.refType,
+    refId: movement.refId,
+    detail: movement.detail,
   };
   cash.movements.push(row);
   persist(all);
@@ -189,6 +198,64 @@ export async function addQuickExpense(input: {
     description: desc,
   });
   return { cash: updated, created };
+}
+
+export async function updateCashMovement(
+  cashId: string,
+  movementId: string,
+  patch: Partial<
+    Pick<CashMovement, 'amount' | 'description' | 'movementType' | 'notes' | 'paymentMethod'>
+  >,
+) {
+  const all = listCashRegisters();
+  const cash = all.find((c) => c.id === cashId);
+  if (!cash || cash.status !== 'OPEN') throw new Error('Caixa não está aberto');
+  const idx = cash.movements.findIndex((m) => m.id === movementId);
+  if (idx < 0) throw new Error('Movimento não encontrado');
+  cash.movements[idx] = { ...cash.movements[idx], ...patch };
+  persist(all);
+  await enqueueSyncOp({
+    entityType: 'CashRegisterMovement',
+    entityId: movementId,
+    action: 'UPDATE',
+    payload: { ...cash.movements[idx], cashRegisterId: cashId },
+    version: 2,
+  });
+  return cash;
+}
+
+export async function deleteCashMovement(cashId: string, movementId: string) {
+  const all = listCashRegisters();
+  const cash = all.find((c) => c.id === cashId);
+  if (!cash || cash.status !== 'OPEN') throw new Error('Caixa não está aberto');
+  const before = cash.movements.length;
+  cash.movements = cash.movements.filter((m) => m.id !== movementId);
+  if (cash.movements.length === before) throw new Error('Movimento não encontrado');
+  persist(all);
+  await enqueueSyncOp({
+    entityType: 'CashRegisterMovement',
+    entityId: movementId,
+    action: 'DELETE',
+    payload: { id: movementId, cashRegisterId: cashId },
+  });
+  return cash;
+}
+
+export async function appendMovementComment(
+  cashId: string,
+  movementId: string,
+  comment: string,
+) {
+  const text = comment.trim();
+  if (!text) throw new Error('Escreva o comentário.');
+  const all = listCashRegisters();
+  const cash = all.find((c) => c.id === cashId);
+  if (!cash || cash.status !== 'OPEN') throw new Error('Caixa não está aberto');
+  const mov = cash.movements.find((m) => m.id === movementId);
+  if (!mov) throw new Error('Movimento não encontrado');
+  const stamped = `${new Date().toLocaleString('pt-BR')}: ${text}`;
+  const notes = mov.notes ? `${mov.notes}\n${stamped}` : stamped;
+  return updateCashMovement(cashId, movementId, { notes });
 }
 
 export async function closeCash(input: {

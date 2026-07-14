@@ -22,9 +22,17 @@ export function PageHeader({
   );
 }
 
-export function PlaceholderCard({ children }: { children: ReactNode }) {
+export function PlaceholderCard({
+  children,
+  className = '',
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="rounded-xl border border-white/10 bg-ink-800/90 p-5 text-ink-50 shadow-panel backdrop-blur-sm">
+    <div
+      className={`rounded-xl border border-white/10 bg-ink-800/90 p-5 text-ink-50 shadow-panel backdrop-blur-sm ${className}`}
+    >
       {children}
     </div>
   );
