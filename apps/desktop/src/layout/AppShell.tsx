@@ -79,7 +79,9 @@ export function AppShell() {
               <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-moss-400">
                 Sucatas
               </p>
-              <p className="mt-1 truncate text-xs text-ink-300">FerroGestor</p>
+              <p className="mt-1 truncate text-xs text-ink-300">
+                Búfalo Sucata Gestor
+              </p>
             </div>
           </div>
         </div>

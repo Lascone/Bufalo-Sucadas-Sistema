@@ -16,8 +16,7 @@ import {
   weightFromTotal,
 } from '../lib/materials';
 import { MaterialThumb } from '../components/MaterialThumb';
-import { createPurchase, listPurchases } from '../lib/purchases';
-import { formatItemsSummary } from '../lib/item-summary';
+import { createPurchase, deletePurchase } from '../lib/purchases';
 import { MoreHorizontal } from 'lucide-react';
 import {
   addQuickExpense,
@@ -114,7 +113,10 @@ export function CashOpsPage() {
 
   const submitRef = useRef<() => void>(() => undefined);
   const closeFocusRef = useRef<HTMLInputElement>(null);
-  const recentBuys = listPurchases().slice(0, 6);
+  /** Mesma base da aba Movimentos: só o caixa aberto. */
+  const sessionMovements = open
+    ? [...open.movements].reverse()
+    : [];
 
   const buyTotal = useMemo(
     () =>
@@ -648,24 +650,64 @@ export function CashOpsPage() {
                 Finalizar compra (F5)
               </PrimaryButton>
             </div>
-            {recentBuys.length > 0 && (
-              <ul className="mt-2 space-y-0.5 border-t border-white/10 pt-2">
-                {recentBuys.map((p) => (
-                  <li
-                    key={p.id}
-                    className="flex items-baseline justify-between gap-2 px-0.5 py-1 text-xs"
-                  >
-                    <span className="min-w-0 truncate text-ink-300">
-                      <span className="text-ink-100">{p.documentNumber}</span>
-                      {' · '}
-                      {formatItemsSummary(p.items)}
-                    </span>
-                    <span className="shrink-0 text-orange-300">
-                      −R$ {p.amountPaid.toFixed(2)}
-                    </span>
-                  </li>
-                ))}
+            {open && sessionMovements.length > 0 && (
+              <ul className="mt-2 max-h-48 space-y-0.5 overflow-auto border-t border-white/10 pt-2">
+                {sessionMovements.map((m) => {
+                  const tone = movementTone(m.movementType);
+                  const income = isCashIn(m.movementType);
+                  const label =
+                    m.detail || m.description || movementLabel(m.movementType);
+                  return (
+                    <li
+                      key={m.id}
+                      className="flex items-center justify-between gap-2 px-0.5 py-1 text-xs"
+                    >
+                      <span className="min-w-0 truncate text-ink-300">
+                        <span
+                          className={`mr-1 inline-block rounded px-1 py-0.5 text-[10px] font-medium ${tone.badge}`}
+                        >
+                          {movementLabel(m.movementType)}
+                        </span>
+                        <span className="text-ink-100">{label}</span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className={`font-semibold tabular-nums ${tone.amount}`}>
+                          {income ? '+' : '−'}
+                          {m.amount.toFixed(2)}
+                        </span>
+                        <button
+                          type="button"
+                          className="rounded border border-red-500/30 px-1.5 py-0.5 text-[10px] font-medium text-red-300 hover:bg-red-500/15"
+                          onClick={() => {
+                            const title =
+                              m.refType === 'PURCHASE' && m.refId
+                                ? 'Excluir esta compra? Some do caixa e do pátio.'
+                                : 'Excluir este lançamento do caixa?';
+                            if (!confirm(title)) return;
+                            const run =
+                              m.refType === 'PURCHASE' && m.refId
+                                ? deletePurchase(m.refId)
+                                : deleteCashMovement(open.id, m.id);
+                            void run
+                              .then(() => {
+                                refresh();
+                                setInfo('Lançamento excluído.');
+                              })
+                              .catch((err: Error) => setError(err.message));
+                          }}
+                        >
+                          Excluir
+                        </button>
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
+            )}
+            {open && sessionMovements.length === 0 && (
+              <p className="mt-2 border-t border-white/10 pt-2 text-[11px] text-ink-500">
+                Nenhum lançamento neste caixa ainda.
+              </p>
             )}
           </PlaceholderCard>
         )}

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "main": "dist-electron/main.js",
   "private": true,
-  "description": "FerroGestor desktop — Bufalo Sucatas",
+  "description": "Búfalo Sucata Gestor — Bufalo Sucatas",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.node.json && vite build && tsc -p tsconfig.electron.json",
@@ -48,8 +48,8 @@
     "vitest": "^2.1.8"
   },
   "build": {
-    "appId": "br.com.bufalosucatas.ferrogestor",
-    "productName": "FerroGestor",
+    "appId": "br.com.bufalosucatas.gestor",
+    "productName": "Bufalo Sucata Gestor",
     "copyright": "Copyright © Bufalo Sucatas",
     "directories": {
       "output": "release",
@@ -67,7 +67,7 @@
         "nsis"
       ],
       "icon": "build/icon.png",
-      "artifactName": "FerroGestor-Setup-${version}.${ext}"
+      "artifactName": "BufaloSucataGestor-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,

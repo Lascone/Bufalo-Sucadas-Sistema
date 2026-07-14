@@ -180,3 +180,27 @@ export async function applySaleToPatio(input: {
 export function listPatioMovements(limit = 50): PatioMovement[] {
   return listMovements().slice(0, limit);
 }
+
+/** Remove entradas do pátio ligadas a uma compra (desfaz o estoque). */
+export async function removePurchaseFromPatio(purchaseId: string) {
+  const all = listMovements();
+  const keep: PatioMovement[] = [];
+  const removed: PatioMovement[] = [];
+  for (const m of all) {
+    if (m.sourceType === 'PURCHASE' && m.sourceId === purchaseId) {
+      removed.push(m);
+    } else {
+      keep.push(m);
+    }
+  }
+  if (removed.length === 0) return;
+  persist(keep);
+  for (const row of removed) {
+    await enqueueSyncOp({
+      entityType: 'PatioMovement',
+      entityId: row.id,
+      action: 'DELETE',
+      payload: { id: row.id, sourceId: purchaseId },
+    });
+  }
+}

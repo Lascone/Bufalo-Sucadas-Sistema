@@ -1,7 +1,12 @@
 import { loadJson, saveJson, enqueueSyncOp, newId } from './local-store';
 import { lineTotal } from './materials';
-import { ensureOpenCash, addCashMovement } from './cash';
-import { applyPurchaseToPatio } from './patio';
+import {
+  addCashMovement,
+  deleteCashMovement,
+  ensureOpenCash,
+  getOpenCash,
+} from './cash';
+import { applyPurchaseToPatio, removePurchaseFromPatio } from './patio';
 import { formatItemsSummary } from './item-summary';
 
 export type PurchaseItem = {
@@ -134,4 +139,32 @@ export async function createPurchase(input: {
       ? 'Caixa aberto automaticamente para registrar a compra.'
       : undefined,
   };
+}
+
+/** Exclui compra: tira do caixa aberto, desfaz pátio e remove o registro. */
+export async function deletePurchase(purchaseId: string) {
+  const all = listPurchases();
+  const idx = all.findIndex((p) => p.id === purchaseId);
+  if (idx < 0) throw new Error('Compra não encontrada');
+
+  const cash = getOpenCash();
+  if (cash) {
+    const mov = cash.movements.find(
+      (m) => m.refType === 'PURCHASE' && m.refId === purchaseId,
+    );
+    if (mov) {
+      await deleteCashMovement(cash.id, mov.id);
+    }
+  }
+
+  await removePurchaseFromPatio(purchaseId);
+
+  all.splice(idx, 1);
+  saveJson(KEY, all);
+  await enqueueSyncOp({
+    entityType: 'Purchase',
+    entityId: purchaseId,
+    action: 'DELETE',
+    payload: { id: purchaseId },
+  });
 }

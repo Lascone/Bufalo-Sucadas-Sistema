@@ -1,5 +1,5 @@
-export const APP_NAME = 'FerroGestor';
-export const APP_COMPANY = 'Bufalo Sucatas';
+export const APP_NAME = 'Búfalo Sucata Gestor';
+export const APP_COMPANY = 'Búfalo Sucatas';
 export const APP_VERSION = '0.1.0';
 
 export const SyncStatus = {

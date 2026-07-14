@@ -25,7 +25,7 @@ function createWindow() {
     height: 860,
     minWidth: 1024,
     minHeight: 700,
-    title: 'FerroGestor — Búfalo Sucatas',
+    title: 'Búfalo Sucata Gestor',
     backgroundColor: '#0B0B0B',
     icon: path.join(process.env.VITE_PUBLIC ?? path.join(__dirname, '../public'), 'icon.png'),
     webPreferences: {
@@ -79,8 +79,8 @@ function setupAutoUpdater() {
 function registerIpc() {
   ipcMain.handle('app:getInfo', () => ({
     version: app.getVersion(),
-    name: 'FerroGestor',
-    company: 'Bufalo Sucatas',
+    name: 'Búfalo Sucata Gestor',
+    company: 'Búfalo Sucatas',
     isPackaged: app.isPackaged,
     dbPath: getLocalDbPath(),
   }));
