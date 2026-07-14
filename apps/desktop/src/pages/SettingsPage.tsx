@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Field,
   GhostButton,
@@ -55,11 +55,69 @@ function Switch({
   );
 }
 
+type UpdatePhase =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'ready'
+  | 'error'
+  | 'dev';
+
 export function SettingsPage() {
   const appInfo = useAppStore((s) => s.appInfo);
   const [form, setForm] = useState<AppSettings>(() => getSettings());
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [updatePhase, setUpdatePhase] = useState<UpdatePhase>('idle');
+  const [updateMsg, setUpdateMsg] = useState<string | null>(null);
+  const [downloadPct, setDownloadPct] = useState<number | null>(null);
+
+  useEffect(() => {
+    const api = window.ferrogestor;
+    if (!api?.onUpdaterEvent) return;
+    const offs = [
+      api.onUpdaterEvent('updater:available', (info) => {
+        const v =
+          info && typeof info === 'object' && 'version' in info
+            ? String((info as { version: string }).version)
+            : '';
+        setUpdatePhase('available');
+        setUpdateMsg(v ? `Nova versão ${v} disponível.` : 'Nova versão disponível.');
+      }),
+      api.onUpdaterEvent('updater:not-available', () => {
+        setUpdatePhase('not-available');
+        setUpdateMsg('Você já está na versão mais recente.');
+      }),
+      api.onUpdaterEvent('updater:progress', (p) => {
+        setUpdatePhase('downloading');
+        const pct =
+          p && typeof p === 'object' && 'percent' in p
+            ? Number((p as { percent: number }).percent)
+            : 0;
+        setDownloadPct(Math.round(pct));
+        setUpdateMsg(`Baixando… ${Math.round(pct)}%`);
+      }),
+      api.onUpdaterEvent('updater:downloaded', (info) => {
+        const v =
+          info && typeof info === 'object' && 'version' in info
+            ? String((info as { version: string }).version)
+            : '';
+        setUpdatePhase('ready');
+        setUpdateMsg(
+          v
+            ? `Versão ${v} baixada. Clique em Instalar e reiniciar.`
+            : 'Update baixado. Clique em Instalar e reiniciar.',
+        );
+      }),
+      api.onUpdaterEvent('updater:error', (err) => {
+        setUpdatePhase('error');
+        setUpdateMsg(typeof err === 'string' ? err : 'Falha ao atualizar.');
+      }),
+    ];
+    return () => offs.forEach((off) => off());
+  }, []);
 
   const setField = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
@@ -74,6 +132,20 @@ export function SettingsPage() {
         setSaving(false);
       })
       .catch(() => setSaving(false));
+  };
+
+  const checkUpdates = () => {
+    setUpdatePhase('checking');
+    setUpdateMsg('Verificando…');
+    setDownloadPct(null);
+    void window.ferrogestor?.checkForUpdates()?.then((res) => {
+      if (res && typeof res === 'object' && 'skipped' in res) {
+        setUpdatePhase('dev');
+        setUpdateMsg(
+          'Modo desenvolvimento: update só funciona no app instalado (.exe), não no pnpm dev.',
+        );
+      }
+    });
   };
 
   return (
@@ -306,19 +378,51 @@ export function SettingsPage() {
               <span className="text-ink-300">Versão:</span> {appInfo?.version}
             </p>
             <p className="mt-1 text-xs text-moss-400">
-              Release de teste do auto-update (0.1.1).
+              Update de teste 0.1.2 — se isto aparece na Sucata depois do
+              verificar atualizações, o fluxo funciona.
             </p>
             <p className="mt-1 break-all">
               <span className="text-ink-300">SQLite:</span> {appInfo?.dbPath ?? '—'}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <PrimaryButton
-              type="button"
-              onClick={() => void window.ferrogestor?.checkForUpdates()}
+          {updateMsg && (
+            <p
+              className={`rounded-lg border px-3 py-2 text-sm ${
+                updatePhase === 'error'
+                  ? 'border-red-500/40 bg-red-950/40 text-red-200'
+                  : 'border-moss-500/30 bg-moss-700/20 text-moss-300'
+              }`}
             >
+              {updateMsg}
+              {updatePhase === 'downloading' && downloadPct != null
+                ? ` (${downloadPct}%)`
+                : ''}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <PrimaryButton type="button" onClick={checkUpdates}>
               Verificar atualizações
             </PrimaryButton>
+            {updatePhase === 'available' && (
+              <PrimaryButton
+                type="button"
+                onClick={() => {
+                  setUpdatePhase('downloading');
+                  setUpdateMsg('Iniciando download…');
+                  void window.ferrogestor?.downloadUpdate();
+                }}
+              >
+                Baixar update
+              </PrimaryButton>
+            )}
+            {updatePhase === 'ready' && (
+              <PrimaryButton
+                type="button"
+                onClick={() => void window.ferrogestor?.installUpdate()}
+              >
+                Instalar e reiniciar
+              </PrimaryButton>
+            )}
             <button
               type="button"
               className="rounded-lg border border-white/15 bg-ink-900/60 px-4 py-2.5 text-sm font-medium text-ink-50 transition hover:border-brand-400/50"

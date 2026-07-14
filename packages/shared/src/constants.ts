@@ -1,6 +1,6 @@
 export const APP_NAME = 'Búfalo Sucata Gestor';
 export const APP_COMPANY = 'Búfalo Sucatas';
-export const APP_VERSION = '0.1.1';
+export const APP_VERSION = '0.1.2';
 
 export const SyncStatus = {
   SYNCED: 'SYNCED',
