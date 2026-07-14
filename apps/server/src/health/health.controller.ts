@@ -1,24 +1,36 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Inject } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.module.js';
+import { MongoService } from '../mongo/mongo.module.js';
 
 @ApiTags('health')
 @Controller('health')
 export class HealthController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(MongoService) private readonly mongo: MongoService,
+  ) {}
 
   @Get()
   async check() {
-    let database = 'up';
+    let sqlite = 'up';
+    let sqliteDetail: string | undefined;
     try {
-      await this.prisma.db.$queryRaw`SELECT 1`;
-    } catch {
-      database = 'down';
+      await this.prisma.db.$queryRawUnsafe('SELECT 1 AS ok');
+    } catch (err) {
+      sqlite = 'down';
+      sqliteDetail = err instanceof Error ? err.message : String(err);
     }
+
+    const mongodb = this.mongo.isReady() ? 'up' : 'down';
+
     return {
-      status: database === 'up' ? 'ok' : 'degraded',
+      status: sqlite === 'up' && mongodb === 'up' ? 'ok' : 'degraded',
       service: 'ferrogestor-api',
-      database,
+      sqlite,
+      mongodb,
+      database: mongodb,
+      detail: sqliteDetail,
       timestamp: new Date().toISOString(),
     };
   }

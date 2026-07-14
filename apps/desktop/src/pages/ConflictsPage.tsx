@@ -14,7 +14,7 @@ export function ConflictsPage() {
           <li>Mesclar informações</li>
           <li>Justificativa obrigatória</li>
         </ul>
-        <p className="mt-3 text-sm text-steel-400">
+        <p className="mt-3 text-sm text-ink-300">
           Endpoint: POST /api/v1/sync/conflicts/:id/resolve
         </p>
       </PlaceholderCard>

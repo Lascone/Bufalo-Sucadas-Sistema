@@ -1,75 +1,31 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject, ServiceUnavailableException } from '@nestjs/common';
 import {
   type SyncOperation,
   type SyncPushResult,
   detectVersionConflict,
   getConflictStrategy,
+  ConflictStrategy,
 } from '@ferrogestor/shared';
-import { ConflictStrategy } from '@ferrogestor/shared';
-import { PrismaService } from '../prisma/prisma.module.js';
-
-const ENTITY_DELEGATES = [
-  'contact',
-  'material',
-  'materialCategory',
-  'materialPrice',
-  'companyPriceTable',
-  'purchase',
-  'purchaseItem',
-  'weighing',
-  'sale',
-  'saleItem',
-  'stockMovement',
-  'stockProcessing',
-  'financialAccount',
-  'financialTransaction',
-  'accountPayable',
-  'accountReceivable',
-  'companyCredit',
-  'companyCreditMovement',
-  'cashRegister',
-  'cashRegisterMovement',
-  'attachment',
-  'applicationSetting',
-  'warehouse',
-  'branch',
-] as const;
-
-type EntityDelegateName = (typeof ENTITY_DELEGATES)[number];
-
-function toDelegateName(entityType: string): EntityDelegateName | null {
-  const map: Record<string, EntityDelegateName> = {
-    Contact: 'contact',
-    Material: 'material',
-    MaterialCategory: 'materialCategory',
-    MaterialPrice: 'materialPrice',
-    CompanyPriceTable: 'companyPriceTable',
-    Purchase: 'purchase',
-    PurchaseItem: 'purchaseItem',
-    Weighing: 'weighing',
-    Sale: 'sale',
-    SaleItem: 'saleItem',
-    StockMovement: 'stockMovement',
-    StockProcessing: 'stockProcessing',
-    FinancialAccount: 'financialAccount',
-    FinancialTransaction: 'financialTransaction',
-    AccountPayable: 'accountPayable',
-    AccountReceivable: 'accountReceivable',
-    CompanyCredit: 'companyCredit',
-    CompanyCreditMovement: 'companyCreditMovement',
-    CashRegister: 'cashRegister',
-    CashRegisterMovement: 'cashRegisterMovement',
-    Attachment: 'attachment',
-    ApplicationSetting: 'applicationSetting',
-    Warehouse: 'warehouse',
-    Branch: 'branch',
-  };
-  return map[entityType] ?? null;
-}
+import { MongoService } from '../mongo/mongo.module.js';
+import {
+  SyncConflictModel,
+  SyncEntityModel,
+  SyncLogModel,
+  SyncQueueModel,
+  SyncReceiptModel,
+} from '../mongo/mongo.schemas.js';
 
 @Injectable()
 export class SyncService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(MongoService) private readonly mongo: MongoService) {}
+
+  private ensureMongo() {
+    if (!this.mongo.isReady()) {
+      throw new ServiceUnavailableException(
+        'MongoDB indisponível — configure MONGODB_URI e verifique a conexão',
+      );
+    }
+  }
 
   async push(
     companyId: string,
@@ -77,6 +33,7 @@ export class SyncService {
     userId: string,
     operations: SyncOperation[],
   ): Promise<SyncPushResult> {
+    this.ensureMongo();
     const result: SyncPushResult = {
       accepted: [],
       conflicts: [],
@@ -93,9 +50,9 @@ export class SyncService {
           continue;
         }
 
-        const existingReceipt = await this.prisma.db.syncOperationReceipt.findUnique({
-          where: { originOperationId: op.originOperationId },
-        });
+        const existingReceipt = await SyncReceiptModel.findOne({
+          originOperationId: op.originOperationId,
+        }).lean();
         if (existingReceipt) {
           result.accepted.push(op.originOperationId);
           continue;
@@ -111,15 +68,14 @@ export class SyncService {
             reason: applied.reason ?? 'Conflito de versão',
           });
         } else {
-          await this.prisma.db.syncOperationReceipt.create({
-            data: {
-              originOperationId: op.originOperationId,
-              companyId,
-              deviceId,
-              entityType: op.entityType,
-              entityId: op.entityId,
-              result: 'ACCEPTED',
-            },
+          await SyncReceiptModel.create({
+            originOperationId: op.originOperationId,
+            companyId,
+            deviceId,
+            entityType: op.entityType,
+            entityId: op.entityId,
+            result: 'ACCEPTED',
+            processedAt: new Date(),
           });
           result.accepted.push(op.originOperationId);
         }
@@ -131,19 +87,17 @@ export class SyncService {
       }
     }
 
-    await this.prisma.db.syncLog.create({
-      data: {
-        companyId,
-        deviceId,
-        direction: 'PUSH',
-        startedAt: new Date(),
-        finishedAt: new Date(),
-        pushedCount: result.accepted.length,
-        conflictCount: result.conflicts.length,
-        errorCount: result.errors.length,
-        success: result.errors.length === 0,
-        details: result as object,
-      },
+    await SyncLogModel.create({
+      companyId,
+      deviceId,
+      direction: 'PUSH',
+      startedAt: new Date(),
+      finishedAt: new Date(),
+      pushedCount: result.accepted.length,
+      conflictCount: result.conflicts.length,
+      errorCount: result.errors.length,
+      success: result.errors.length === 0,
+      details: result,
     });
 
     return result;
@@ -154,192 +108,184 @@ export class SyncService {
     userId: string,
   ): Promise<{ conflictId?: string; reason?: string }> {
     const strategy = getConflictStrategy(op.entityType);
-    const delegateName = toDelegateName(op.entityType);
 
     if (strategy === ConflictStrategy.MOVEMENT_ONLY && op.action === 'UPDATE') {
-      const conflict = await this.prisma.db.syncConflict.create({
-        data: {
-          companyId: op.companyId,
-          entityType: op.entityType,
-          entityId: op.entityId,
-          originOperationId: op.originOperationId,
-          localPayload: op.payload as object,
-          serverPayload: {},
-          localVersion: op.version,
-          serverVersion: 0,
-          status: 'PENDING',
-        },
+      const conflict = await SyncConflictModel.create({
+        companyId: op.companyId,
+        entityType: op.entityType,
+        entityId: op.entityId,
+        originOperationId: op.originOperationId,
+        localPayload: op.payload,
+        serverPayload: {},
+        localVersion: op.version,
+        serverVersion: 0,
+        status: 'PENDING',
       });
       return {
-        conflictId: conflict.id,
+        conflictId: conflict._id,
         reason: 'Estoque não permite UPDATE direto; use movimentações',
       };
     }
 
     if (strategy === ConflictStrategy.REQUIRES_REVERSAL && op.action === 'DELETE') {
-      const conflict = await this.prisma.db.syncConflict.create({
-        data: {
-          companyId: op.companyId,
-          entityType: op.entityType,
-          entityId: op.entityId,
-          originOperationId: op.originOperationId,
-          localPayload: op.payload as object,
-          serverPayload: {},
-          localVersion: op.version,
-          serverVersion: 0,
-          status: 'PENDING',
-        },
+      const conflict = await SyncConflictModel.create({
+        companyId: op.companyId,
+        entityType: op.entityType,
+        entityId: op.entityId,
+        originOperationId: op.originOperationId,
+        localPayload: op.payload,
+        serverPayload: {},
+        localVersion: op.version,
+        serverVersion: 0,
+        status: 'PENDING',
       });
       return {
-        conflictId: conflict.id,
+        conflictId: conflict._id,
         reason: 'Registro financeiro/operacional exige estorno, não exclusão',
       };
     }
 
-    if (!delegateName) {
-      // Generic queue mirror for unsupported entities in foundation
-      await this.prisma.db.syncQueue.create({
-        data: {
-          companyId: op.companyId,
-          branchId: op.branchId ?? undefined,
-          deviceId: op.deviceId,
-          originOperationId: op.originOperationId,
-          entityType: op.entityType,
-          entityId: op.entityId,
-          action: op.action,
-          payload: op.payload as object,
-          version: op.version,
-          status: 'SYNCED',
-          occurredAt: new Date(op.occurredAt),
-        },
+    const current = await SyncEntityModel.findById(op.entityId).lean();
+
+    if (
+      current &&
+      op.version === current.version &&
+      op.action === 'UPDATE' &&
+      strategy === ConflictStrategy.MANUAL
+    ) {
+      const conflict = await SyncConflictModel.create({
+        companyId: op.companyId,
+        entityType: op.entityType,
+        entityId: op.entityId,
+        originOperationId: op.originOperationId,
+        localPayload: op.payload,
+        serverPayload: current.payload,
+        localVersion: op.version,
+        serverVersion: current.version,
+        localUserId: userId,
+        serverUserId: current.createdByUserId,
+        localUpdatedAt: new Date(op.occurredAt),
+        serverUpdatedAt: current.updatedAt,
+        status: 'PENDING',
       });
-      return {};
+      return { conflictId: conflict._id, reason: 'Resolução manual necessária' };
     }
 
-    const model = this.prisma.db[delegateName] as unknown as {
-      findUnique: (args: { where: { id: string } }) => Promise<{
-        id: string;
-        version: number;
-        updatedAt: Date;
-        createdByUserId: string | null;
-      } | null>;
-      upsert: (args: unknown) => Promise<unknown>;
-      update: (args: unknown) => Promise<unknown>;
-    };
-
-    const current = await model.findUnique({ where: { id: op.entityId } });
-
-    if (current && detectVersionConflict(op.version, current.version, current.version - 1)) {
-      // Concurrent edit: incoming version != server version and not a simple increment path
-      if (
-        strategy === ConflictStrategy.MANUAL ||
-        (strategy === ConflictStrategy.LAST_WRITE_WINS &&
-          op.version === current.version)
-      ) {
-        if (op.version <= current.version && strategy === ConflictStrategy.MANUAL) {
-          const conflict = await this.prisma.db.syncConflict.create({
-            data: {
-              companyId: op.companyId,
-              entityType: op.entityType,
-              entityId: op.entityId,
-              originOperationId: op.originOperationId,
-              localPayload: op.payload as object,
-              serverPayload: current as unknown as object,
-              localVersion: op.version,
-              serverVersion: current.version,
-              localUserId: userId,
-              serverUserId: current.createdByUserId,
-              localUpdatedAt: new Date(op.occurredAt),
-              serverUpdatedAt: current.updatedAt,
-              status: 'PENDING',
-            },
-          });
-          return { conflictId: conflict.id, reason: 'Resolução manual necessária' };
-        }
-      }
+    if (
+      current &&
+      detectVersionConflict(op.version, current.version, current.version - 1) &&
+      strategy === ConflictStrategy.MANUAL &&
+      op.version <= current.version
+    ) {
+      const conflict = await SyncConflictModel.create({
+        companyId: op.companyId,
+        entityType: op.entityType,
+        entityId: op.entityId,
+        originOperationId: op.originOperationId,
+        localPayload: op.payload,
+        serverPayload: current.payload,
+        localVersion: op.version,
+        serverVersion: current.version,
+        status: 'PENDING',
+      });
+      return { conflictId: conflict._id, reason: 'Conflito de versão' };
     }
 
-    if (current && op.version < current.version && strategy === ConflictStrategy.LAST_WRITE_WINS) {
-      // Server already newer — accept but no overwrite (idempotent ack)
+    if (
+      current &&
+      op.version < current.version &&
+      strategy === ConflictStrategy.LAST_WRITE_WINS
+    ) {
       return {};
     }
 
     if (current && op.version === current.version && op.action === 'UPDATE') {
-      const conflict = await this.prisma.db.syncConflict.create({
-        data: {
-          companyId: op.companyId,
-          entityType: op.entityType,
-          entityId: op.entityId,
-          originOperationId: op.originOperationId,
-          localPayload: op.payload as object,
-          serverPayload: current as unknown as object,
-          localVersion: op.version,
-          serverVersion: current.version,
-          status: 'PENDING',
-        },
+      const conflict = await SyncConflictModel.create({
+        companyId: op.companyId,
+        entityType: op.entityType,
+        entityId: op.entityId,
+        originOperationId: op.originOperationId,
+        localPayload: op.payload,
+        serverPayload: current.payload,
+        localVersion: op.version,
+        serverVersion: current.version,
+        status: 'PENDING',
       });
-      return { conflictId: conflict.id, reason: 'Mesma versão alterada em paralelo' };
+      return { conflictId: conflict._id, reason: 'Mesma versão alterada em paralelo' };
     }
 
-    const baseData = {
-      ...(op.payload as Record<string, unknown>),
-      id: op.entityId,
-      companyId: op.companyId,
-      branchId: op.branchId ?? undefined,
-      deviceId: op.deviceId,
-      version: op.version,
-      syncStatus: 'SYNCED',
-      syncedAt: new Date(),
-      originOperationId: op.originOperationId,
-      createdByUserId: userId,
-      deletedAt: op.action === 'DELETE' ? new Date() : null,
-    };
-
-    await model.upsert({
-      where: { id: op.entityId },
-      create: baseData,
-      update: {
-        ...baseData,
-        updatedAt: new Date(),
+    const now = new Date();
+    await SyncEntityModel.findByIdAndUpdate(
+      op.entityId,
+      {
+        _id: op.entityId,
+        companyId: op.companyId,
+        branchId: op.branchId ?? undefined,
+        deviceId: op.deviceId,
+        entityType: op.entityType,
+        version: op.version,
+        payload: op.payload,
+        createdByUserId: userId,
+        deletedAt: op.action === 'DELETE' ? now : null,
+        originOperationId: op.originOperationId,
+        updatedAt: now,
+        createdAt: current?.createdAt ?? now,
       },
-    });
+      { upsert: true, new: true },
+    );
+
+    await SyncQueueModel.findOneAndUpdate(
+      { originOperationId: op.originOperationId },
+      {
+        companyId: op.companyId,
+        branchId: op.branchId ?? undefined,
+        deviceId: op.deviceId,
+        originOperationId: op.originOperationId,
+        entityType: op.entityType,
+        entityId: op.entityId,
+        action: op.action,
+        payload: op.payload,
+        version: op.version,
+        status: 'SYNCED',
+        occurredAt: new Date(op.occurredAt),
+        updatedAt: now,
+      },
+      { upsert: true, new: true },
+    );
 
     return {};
   }
 
   async pull(companyId: string, deviceId: string, since: Date, limit: number) {
-    const changes = await this.prisma.db.syncQueue.findMany({
-      where: {
-        companyId,
-        status: 'SYNCED',
-        updatedAt: { gt: since },
-        NOT: { deviceId },
-      },
-      orderBy: { updatedAt: 'asc' },
-      take: limit,
-    });
+    this.ensureMongo();
 
-    // Also surface accepted entity updates via receipts as lightweight markers
-    const receipts = await this.prisma.db.syncOperationReceipt.findMany({
-      where: {
-        companyId,
-        processedAt: { gt: since },
-        NOT: { deviceId },
-      },
-      orderBy: { processedAt: 'asc' },
-      take: limit,
-    });
+    const changes = await SyncQueueModel.find({
+      companyId,
+      status: 'SYNCED',
+      updatedAt: { $gt: since },
+      deviceId: { $ne: deviceId },
+    })
+      .sort({ updatedAt: 1 })
+      .limit(limit)
+      .lean();
 
-    await this.prisma.db.syncLog.create({
-      data: {
-        companyId,
-        deviceId,
-        direction: 'PULL',
-        startedAt: new Date(),
-        finishedAt: new Date(),
-        pulledCount: changes.length + receipts.length,
-        success: true,
-      },
+    const receipts = await SyncReceiptModel.find({
+      companyId,
+      processedAt: { $gt: since },
+      deviceId: { $ne: deviceId },
+    })
+      .sort({ processedAt: 1 })
+      .limit(limit)
+      .lean();
+
+    await SyncLogModel.create({
+      companyId,
+      deviceId,
+      direction: 'PULL',
+      startedAt: new Date(),
+      finishedAt: new Date(),
+      pulledCount: changes.length + receipts.length,
+      success: true,
     });
 
     return {
@@ -352,30 +298,23 @@ export class SyncService {
         action: c.action,
         payload: c.payload,
         version: c.version,
-        occurredAt: c.occurredAt.toISOString(),
+        occurredAt: new Date(c.occurredAt).toISOString(),
       })),
       receipts: receipts.map((r) => ({
         originOperationId: r.originOperationId,
         entityType: r.entityType,
         entityId: r.entityId,
-        processedAt: r.processedAt.toISOString(),
+        processedAt: new Date(r.processedAt).toISOString(),
       })),
     };
   }
 
   async status(companyId: string) {
+    this.ensureMongo();
     const [pendingConflicts, recentLogs, pendingQueue] = await Promise.all([
-      this.prisma.db.syncConflict.count({
-        where: { companyId, status: 'PENDING' },
-      }),
-      this.prisma.db.syncLog.findMany({
-        where: { companyId },
-        orderBy: { startedAt: 'desc' },
-        take: 20,
-      }),
-      this.prisma.db.syncQueue.count({
-        where: { companyId, status: 'PENDING' },
-      }),
+      SyncConflictModel.countDocuments({ companyId, status: 'PENDING' }),
+      SyncLogModel.find({ companyId }).sort({ startedAt: -1 }).limit(20).lean(),
+      SyncQueueModel.countDocuments({ companyId, status: 'PENDING' }),
     ]);
 
     return {
@@ -383,6 +322,7 @@ export class SyncService {
       pendingConflicts,
       recentLogs,
       connection: 'online',
+      store: 'mongodb',
     };
   }
 
@@ -394,57 +334,37 @@ export class SyncService {
     justification: string,
     mergedPayload?: Record<string, unknown>,
   ) {
-    const conflict = await this.prisma.db.syncConflict.findFirst({
-      where: { id: conflictId, companyId },
+    this.ensureMongo();
+    const conflict = await SyncConflictModel.findOne({
+      _id: conflictId,
+      companyId,
     });
     if (!conflict) {
       throw new Error('Conflito não encontrado');
     }
 
-    await this.prisma.db.syncConflict.update({
-      where: { id: conflictId },
-      data: {
-        status: resolution,
-        resolution,
-        justification,
-        resolvedByUserId: userId,
-        resolvedAt: new Date(),
-      },
-    });
+    conflict.status = resolution;
+    conflict.resolution = resolution;
+    conflict.justification = justification;
+    conflict.resolvedByUserId = userId;
+    conflict.resolvedAt = new Date();
+    conflict.updatedAt = new Date();
+    await conflict.save();
 
     if (resolution === 'KEEP_LOCAL' || resolution === 'MERGE') {
       const payload =
         resolution === 'MERGE' && mergedPayload
           ? mergedPayload
           : (conflict.localPayload as Record<string, unknown>);
-      const delegateName = toDelegateName(conflict.entityType);
-      if (delegateName) {
-        const model = this.prisma.db[delegateName] as unknown as {
-          update: (args: unknown) => Promise<unknown>;
-        };
-        await model.update({
-          where: { id: conflict.entityId },
-          data: {
-            ...payload,
-            version: Math.max(conflict.localVersion, conflict.serverVersion) + 1,
-            syncStatus: 'SYNCED',
-            syncedAt: new Date(),
-          },
-        });
-      }
+      const nextVersion =
+        Math.max(conflict.localVersion, conflict.serverVersion) + 1;
+      await SyncEntityModel.findByIdAndUpdate(conflict.entityId, {
+        payload,
+        version: nextVersion,
+        updatedAt: new Date(),
+        createdByUserId: userId,
+      });
     }
-
-    await this.prisma.db.auditLog.create({
-      data: {
-        companyId,
-        userId,
-        action: 'CONFLICT_RESOLVED',
-        entityType: conflict.entityType,
-        entityId: conflict.entityId,
-        reason: justification,
-        afterData: { resolution, mergedPayload } as object,
-      },
-    });
 
     return { ok: true, conflictId, resolution };
   }

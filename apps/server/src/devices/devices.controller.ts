@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Inject,
   Param,
   Post,
   UseGuards,
@@ -16,7 +17,7 @@ import { CurrentUser, JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.gua
 @ApiTags('devices')
 @Controller('devices')
 export class DevicesController {
-  constructor(private readonly devices: DevicesService) {}
+  constructor(@Inject(DevicesService) private readonly devices: DevicesService) {}
 
   @Post('auth')
   async auth(@Body() body: unknown) {

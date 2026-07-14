@@ -1,6 +1,7 @@
 # Seed local
 
-O seed central (`pnpm db:seed`) exige PostgreSQL (`pnpm docker:up`).
+O seed (`pnpm db:seed`) grava no **SQLite central** configurado em `DATABASE_URL`.
+Não precisa de Docker nem MariaDB remoto.
 
 Credenciais padrão após o seed:
 

@@ -4,26 +4,33 @@ Sistema profissional de gestão para ferro-velho e comércio de materiais recicl
 
 **Empresa:** Bufalo Sucatas  
 **Nome provisório do produto:** FerroGestor  
-**Arquitetura:** offline-first (Electron + SQLite local → API NestJS + PostgreSQL central)
+**Arquitetura:** offline-first (Electron + SQLite → API NestJS + SQLite central local)
 
 ## Stack
 
 | Camada | Tecnologias |
 |--------|-------------|
 | Desktop | Electron, React, TypeScript, Vite, Tailwind, shadcn/ui, TanStack Query, Zustand, Prisma + SQLite |
-| Servidor | NestJS (Fastify), Prisma + PostgreSQL, JWT + Argon2, Swagger |
+| Servidor | NestJS (Fastify), Prisma + SQLite local, JWT + Argon2, Swagger |
 | Shared | Zod schemas, tipos de sync, constantes |
 | Deploy desktop | Electron Builder (NSIS) + electron-updater (GitHub Releases) |
+
+## Offline-first (sem Docker)
+
+- **Não usa Docker** no dia a dia.
+- Sem internet o **desktop continua normal** (compras, vendas, cadastros no SQLite local).
+- A sync com a API só pausa; nada é perdido.
+- Banco central remoto (MariaDB/Mongo etc.) pode ser plugado depois sem mudar o modo offline.
 
 ## Estrutura do monorepo
 
 ```text
 apps/
   desktop/     # Aplicativo Windows offline-first
-  server/      # API REST central
+  server/      # API REST de sync (também local)
 packages/
   shared/      # Tipos e contratos compartilhados
-  database/    # Schemas Prisma (local SQLite + central PostgreSQL)
+  database/    # Schemas Prisma (SQLite desktop + SQLite central)
 docs/          # Arquitetura, modelo de dados, sync, instalação
 ```
 
@@ -31,31 +38,23 @@ docs/          # Arquitetura, modelo de dados, sync, instalação
 
 - Node.js 20+
 - pnpm 9+
-- Docker (para PostgreSQL local)
 
 ## Início rápido
 
 ```bash
-# Instalar dependências
 pnpm install
-
-# Subir PostgreSQL
-pnpm docker:up
-
-# Copiar variáveis de ambiente
 cp .env.example .env
 
-# Gerar clients Prisma e migrar
 pnpm db:generate
-pnpm db:migrate:central
+pnpm db:push
 pnpm db:seed
 
-# Desenvolvimento
 pnpm dev:server    # API em http://localhost:3000
 pnpm dev:desktop   # App Electron
 ```
 
-Documentação da API (Swagger): `http://localhost:3000/docs`
+Documentação da API (Swagger): `http://localhost:3000/docs`  
+Usuário seed: `admin` / `Admin@123`
 
 ## Atualização automática
 

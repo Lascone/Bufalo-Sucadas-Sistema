@@ -6,14 +6,15 @@ FerroGestor é um sistema **offline-first** para gestão de ferro-velho (Bufalo 
 
 - O **desktop** (Electron) grava todas as operações no **SQLite local** primeiro.
 - Uma **fila de sincronização** envia/recebe alterações via **API REST** quando houver internet.
-- O **servidor central** (NestJS + PostgreSQL) é a fonte de verdade multi-dispositivo.
-- O aplicativo **nunca** acessa o PostgreSQL diretamente — apenas a API.
+- O **servidor** (NestJS) autentica localmente (SQLite) e sincroniza entidades no **MongoDB Atlas** quando online.
+- O aplicativo **nunca** acessa Mongo/SQLite central diretamente — apenas a API.
+- **Sem Docker** no fluxo normal. Sem internet o desktop segue com dados locais.
 
 ```mermaid
 flowchart LR
   subgraph desktop [Desktop Electron]
     UI[React UI]
-    LocalDB[(SQLite Prisma)]
+    LocalDB[(SQLite local)]
     SyncQ[sync_queue]
     SyncEng[Sync Engine]
     UI --> LocalDB
@@ -22,10 +23,10 @@ flowchart LR
   end
   subgraph central [Servidor]
     API[NestJS API]
-    CentralDB[(PostgreSQL)]
+    CentralDB[(MongoDB Atlas)]
     API --> CentralDB
   end
-  SyncEng -->|"HTTPS JWT"| API
+  SyncEng -->|"HTTP JWT quando online"| API
   API -->|"pull changes"| SyncEng
 ```
 

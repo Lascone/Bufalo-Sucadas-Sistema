@@ -1,16 +1,21 @@
 # Instalação
 
-## Servidor (desenvolvimento)
+## Banco e sync
 
-1. Instale Node 20+ e pnpm 9+.
-2. Na raiz do monorepo:
+- **Desktop / auth local:** SQLite (`DATABASE_URL` / `LOCAL_DATABASE_URL`)
+- **Sync online:** MongoDB Atlas (`MONGODB_URI` no `.env` do servidor)
+
+Internet caída: o desktop segue; só a sincronização pausa.
+
+## Servidor + banco central local
 
 ```bash
 pnpm install
 cp .env.example .env
-pnpm docker:up
+
+# Ajuste DATABASE_URL no .env para um caminho absoluto do SQLite central, se precisar
 pnpm db:generate
-pnpm db:migrate:central
+pnpm db:push
 pnpm db:seed
 pnpm dev:server
 ```
@@ -19,22 +24,13 @@ pnpm dev:server
 - Swagger: `http://localhost:3000/docs`
 - Usuário seed: `admin` / `Admin@123`
 
-## Desktop (desenvolvimento)
+## Desktop
 
 ```bash
-# Defina LOCAL_DATABASE_URL (SQLite)
-# Ex.: LOCAL_DATABASE_URL="file:./data/ferrogestor-local.db"
-pnpm db:generate
-pnpm --filter @ferrogestor/database migrate:local
 pnpm dev:desktop
 ```
 
-## Produção — Docker Compose
-
-```bash
-docker compose up -d
-# Configure DATABASE_URL no servidor e rode migrate deploy + seed
-```
+O desktop grava no SQLite local (`LOCAL_DATABASE_URL`). Sync com a API é opcional e só ocorre quando a API estiver online.
 
 ## Releases e atualização automática
 
@@ -43,10 +39,8 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-O workflow `.github/workflows/release.yml` publica o instalador NSIS. O app verifica updates no canal `stable`.
-
-Antes de aplicar update, o desktop faz backup do SQLite. Se a migration local falhar, o backup é restaurado.
+O workflow publica o instalador NSIS. Antes do update, o desktop faz backup do SQLite.
 
 ## Variáveis
 
-Veja [`.env.example`](../.env.example). **Nunca** coloque a senha do PostgreSQL no aplicativo desktop.
+Veja [`.env.example`](../.env.example). **Nunca** coloque a URL do banco central no app desktop — só a API.

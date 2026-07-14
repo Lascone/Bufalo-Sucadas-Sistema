@@ -45,7 +45,7 @@ const emptySync: SyncSnapshot = {
 };
 
 export const useAppStore = create<AppState>((set, get) => ({
-  theme: 'light',
+  theme: 'dark',
   appInfo: { version: APP_VERSION, name: APP_NAME, company: APP_COMPANY },
   session: {
     username: 'admin',
@@ -54,7 +54,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   sync: emptySync,
   toggleTheme: () =>
-    set((s) => ({ theme: s.theme === 'light' ? 'dark' : 'light' })),
+    set((s) => ({ theme: s.theme === 'dark' ? 'light' : 'dark' })),
   loadAppInfo: async () => {
     if (window.ferrogestor) {
       const info = await window.ferrogestor.getAppInfo();

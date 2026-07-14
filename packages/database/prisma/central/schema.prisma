@@ -4,7 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -390,7 +390,7 @@ model Contact {
   city               String?
   state              String?
   notes              String?
-  creditLimit        Decimal?  @db.Decimal(18, 2)
+  creditLimit        Decimal? 
   preferredPayment   PaymentMethod?
   pixKey             String?
   bankInfo           String?
@@ -469,11 +469,11 @@ model Material {
   categoryId         String?
   description        String?
   unit               MaterialUnit @default(KG)
-  minWeight          Decimal?  @db.Decimal(18, 3)
-  defaultBuyPrice    Decimal?  @db.Decimal(18, 4)
-  defaultSellPrice   Decimal?  @db.Decimal(18, 4)
-  minStock           Decimal?  @db.Decimal(18, 3)
-  maxStock           Decimal?  @db.Decimal(18, 3)
+  minWeight          Decimal? 
+  defaultBuyPrice    Decimal? 
+  defaultSellPrice   Decimal? 
+  minStock           Decimal? 
+  maxStock           Decimal? 
   warehouseLocation  String?
   photoPath          String?
   qualityVariant     String?
@@ -507,8 +507,8 @@ model MaterialPrice {
   originOperationId  String?   @unique
 
   materialId         String
-  buyPrice           Decimal?  @db.Decimal(18, 4)
-  sellPrice          Decimal?  @db.Decimal(18, 4)
+  buyPrice           Decimal? 
+  sellPrice          Decimal? 
   validFrom          DateTime
   validTo            DateTime?
 
@@ -534,10 +534,10 @@ model CompanyPriceTable {
 
   contactId          String
   materialId         String
-  negotiatedPrice    Decimal   @db.Decimal(18, 4)
+  negotiatedPrice    Decimal  
   validFrom          DateTime
   validTo            DateTime?
-  minQuantity        Decimal?  @db.Decimal(18, 3)
+  minQuantity        Decimal? 
   paymentCondition   String?
   freightIncluded    Boolean   @default(false)
   notes              String?
@@ -576,12 +576,12 @@ model Purchase {
   vehiclePlate       String?
   driverName         String?
   notes              String?
-  grossTotal         Decimal   @default(0) @db.Decimal(18, 2)
-  discountTotal      Decimal   @default(0) @db.Decimal(18, 2)
-  surchargeTotal     Decimal   @default(0) @db.Decimal(18, 2)
-  netTotal           Decimal   @default(0) @db.Decimal(18, 2)
-  paidAmount         Decimal   @default(0) @db.Decimal(18, 2)
-  pendingAmount      Decimal   @default(0) @db.Decimal(18, 2)
+  grossTotal         Decimal   @default(0)
+  discountTotal      Decimal   @default(0)
+  surchargeTotal     Decimal   @default(0)
+  netTotal           Decimal   @default(0)
+  paidAmount         Decimal   @default(0)
+  pendingAmount      Decimal   @default(0)
 
   company            Company   @relation(fields: [companyId], references: [id])
   branch             Branch    @relation(fields: [branchId], references: [id])
@@ -613,14 +613,14 @@ model PurchaseItem {
 
   purchaseId         String
   materialId         String
-  grossWeight        Decimal?  @db.Decimal(18, 3)
-  tareWeight         Decimal?  @db.Decimal(18, 3)
-  netWeight          Decimal?  @db.Decimal(18, 3)
-  quantity           Decimal?  @db.Decimal(18, 3)
-  unitPrice          Decimal   @db.Decimal(18, 4)
-  discount           Decimal   @default(0) @db.Decimal(18, 2)
-  surcharge          Decimal   @default(0) @db.Decimal(18, 2)
-  lineTotal          Decimal   @db.Decimal(18, 2)
+  grossWeight        Decimal? 
+  tareWeight         Decimal? 
+  netWeight          Decimal? 
+  quantity           Decimal? 
+  unitPrice          Decimal  
+  discount           Decimal   @default(0)
+  surcharge          Decimal   @default(0)
+  lineTotal          Decimal  
   notes              String?
 
   purchase           Purchase  @relation(fields: [purchaseId], references: [id])
@@ -648,9 +648,9 @@ model Weighing {
   weighingNumber     String
   weighedAt          DateTime
   purchaseId         String?
-  grossWeight        Decimal   @db.Decimal(18, 3)
-  tareWeight         Decimal   @default(0) @db.Decimal(18, 3)
-  netWeight          Decimal   @db.Decimal(18, 3)
+  grossWeight        Decimal  
+  tareWeight         Decimal   @default(0)
+  netWeight          Decimal  
   operatorUserId     String?
   equipmentName      String?
   vehiclePlate       String?
@@ -689,20 +689,47 @@ model Sale {
   driverName         String?
   vehiclePlate       String?
   notes              String?
-  grossTotal         Decimal   @default(0) @db.Decimal(18, 2)
-  discountTotal      Decimal   @default(0) @db.Decimal(18, 2)
-  freightTotal       Decimal   @default(0) @db.Decimal(18, 2)
-  taxTotal           Decimal   @default(0) @db.Decimal(18, 2)
-  netTotal           Decimal   @default(0) @db.Decimal(18, 2)
+  grossTotal         Decimal   @default(0)
+  discountTotal      Decimal   @default(0)
+  freightTotal       Decimal   @default(0)
+  taxTotal           Decimal   @default(0)
+  netTotal           Decimal   @default(0)
 
   company            Company   @relation(fields: [companyId], references: [id])
   branch             Branch    @relation(fields: [branchId], references: [id])
   customer           Contact?  @relation("SaleCustomer", fields: [customerId], references: [id])
   items              SaleItem[]
+  comments           SaleComment[]
 
   @@unique([companyId, branchId, documentNumber])
   @@index([companyId, soldAt])
   @@map("sales")
+}
+
+model SaleComment {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  saleId             String
+  userId             String?
+  body               String
+  authorName         String?
+
+  sale               Sale      @relation(fields: [saleId], references: [id])
+
+  @@index([saleId, createdAt])
+  @@map("sale_comments")
 }
 
 model SaleItem {
@@ -722,11 +749,11 @@ model SaleItem {
 
   saleId             String
   materialId         String
-  weight             Decimal?  @db.Decimal(18, 3)
-  quantity           Decimal?  @db.Decimal(18, 3)
-  unitPrice          Decimal   @db.Decimal(18, 4)
-  discount           Decimal   @default(0) @db.Decimal(18, 2)
-  lineTotal          Decimal   @db.Decimal(18, 2)
+  weight             Decimal? 
+  quantity           Decimal? 
+  unitPrice          Decimal  
+  discount           Decimal   @default(0)
+  lineTotal          Decimal  
   notes              String?
 
   sale               Sale      @relation(fields: [saleId], references: [id])
@@ -754,8 +781,8 @@ model StockMovement {
   materialId         String
   warehouseId        String?
   movementType       StockMovementType
-  quantity           Decimal?  @db.Decimal(18, 3)
-  weight             Decimal?  @db.Decimal(18, 3)
+  quantity           Decimal? 
+  weight             Decimal? 
   location           String?
   sourceDocumentType String?
   sourceDocumentId   String?
@@ -787,10 +814,10 @@ model StockProcessing {
   originOperationId  String?   @unique
 
   sourceMaterialId   String
-  sourceWeight       Decimal   @db.Decimal(18, 3)
+  sourceWeight       Decimal  
   resultPayload      Json
-  lossWeight         Decimal   @default(0) @db.Decimal(18, 3)
-  yieldPercent       Decimal?  @db.Decimal(8, 4)
+  lossWeight         Decimal   @default(0)
+  yieldPercent       Decimal? 
   notes              String?
   processedAt        DateTime  @default(now())
 
@@ -845,7 +872,7 @@ model FinancialTransaction {
   description        String
   category           String?
   contactId          String?
-  amount             Decimal   @db.Decimal(18, 2)
+  amount             Decimal  
   direction          String
   issuedAt           DateTime?
   dueAt              DateTime?
@@ -879,8 +906,8 @@ model AccountPayable {
   description        String
   category           String?
   contactId          String?
-  amount             Decimal   @db.Decimal(18, 2)
-  paidAmount         Decimal   @default(0) @db.Decimal(18, 2)
+  amount             Decimal  
+  paidAmount         Decimal   @default(0)
   issuedAt           DateTime
   dueAt              DateTime
   paidAt             DateTime?
@@ -913,8 +940,8 @@ model AccountReceivable {
   description        String
   category           String?
   contactId          String?
-  amount             Decimal   @db.Decimal(18, 2)
-  paidAmount         Decimal   @default(0) @db.Decimal(18, 2)
+  amount             Decimal  
+  paidAmount         Decimal   @default(0)
   issuedAt           DateTime
   dueAt              DateTime
   paidAt             DateTime?
@@ -945,8 +972,8 @@ model CompanyCredit {
   originOperationId  String?   @unique
 
   contactId          String
-  amount             Decimal   @db.Decimal(18, 2)
-  remainingBalance   Decimal   @db.Decimal(18, 2)
+  amount             Decimal  
+  remainingBalance   Decimal  
   creditedAt         DateTime
   bankName           String?
   paymentMethod      PaymentMethod?
@@ -977,7 +1004,7 @@ model CompanyCreditMovement {
   originOperationId  String?   @unique
 
   creditId           String
-  amount             Decimal   @db.Decimal(18, 2)
+  amount             Decimal  
   movementType       String
   saleId             String?
   notes              String?
@@ -1007,10 +1034,10 @@ model CashRegister {
   openedByUserId     String
   openedAt           DateTime
   closedAt           DateTime?
-  openingBalance     Decimal   @db.Decimal(18, 2)
-  expectedBalance    Decimal?  @db.Decimal(18, 2)
-  informedBalance    Decimal?  @db.Decimal(18, 2)
-  difference         Decimal?  @db.Decimal(18, 2)
+  openingBalance     Decimal  
+  expectedBalance    Decimal? 
+  informedBalance    Decimal? 
+  difference         Decimal? 
   differenceReason   String?
   notes              String?
   status             String    @default("OPEN")
@@ -1037,7 +1064,7 @@ model CashRegisterMovement {
 
   cashRegisterId     String
   movementType       String
-  amount             Decimal   @db.Decimal(18, 2)
+  amount             Decimal  
   paymentMethod      PaymentMethod?
   description        String?
   sourceDocumentType String?

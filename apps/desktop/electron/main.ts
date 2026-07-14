@@ -6,11 +6,12 @@ import {
 } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
-import { autoUpdater } from 'electron-updater';
+import electronUpdater from 'electron-updater';
 import { createBackup, listBackups } from './backup';
 import { getLocalDbPath, ensureLocalDataDir } from './local-db';
 import { getSyncSnapshot, enqueueSyncOp, runSyncCycle } from './sync-engine';
 
+const { autoUpdater } = electronUpdater;
 process.env.DIST = path.join(__dirname, '../dist');
 process.env.VITE_PUBLIC = app.isPackaged
   ? process.env.DIST
@@ -24,8 +25,9 @@ function createWindow() {
     height: 860,
     minWidth: 1024,
     minHeight: 700,
-    title: 'FerroGestor — Bufalo Sucatas',
-    backgroundColor: '#1c242b',
+    title: 'FerroGestor — Búfalo Sucatas',
+    backgroundColor: '#0B0B0B',
+    icon: path.join(process.env.VITE_PUBLIC ?? path.join(__dirname, '../public'), 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

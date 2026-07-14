@@ -2,8 +2,8 @@
 
 Schemas Prisma:
 
-- Central: `packages/database/prisma/central/schema.prisma` (PostgreSQL)
-- Local: `packages/database/prisma/local/schema.prisma` (SQLite)
+- Central: `packages/database/prisma/central/schema.prisma` (SQLite local)
+- Local: `packages/database/prisma/local/schema.prisma` (SQLite desktop)
 
 ## Mixin sincronizável
 

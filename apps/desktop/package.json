@@ -1,10 +1,9 @@
 {
   "name": "@ferrogestor/desktop",
   "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "description": "FerroGestor desktop — Bufalo Sucatas",
   "main": "dist-electron/main.js",
+  "private": true,
+  "description": "FerroGestor desktop — Bufalo Sucatas",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.node.json && vite build && tsc -p tsconfig.electron.json",
@@ -23,6 +22,7 @@
     "clsx": "^2.1.1",
     "electron-updater": "^6.3.9",
     "lucide-react": "^0.473.0",
+    "pdfmake": "^0.3.11",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.54.2",
@@ -32,6 +32,7 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@types/pdfmake": "^0.3.3",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.3.4",
@@ -51,17 +52,21 @@
     "productName": "FerroGestor",
     "copyright": "Copyright © Bufalo Sucatas",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
+    "icon": "build/icon.png",
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
       "package.json"
     ],
+    "extraResources": [],
     "win": {
       "target": [
         "nsis"
       ],
+      "icon": "build/icon.png",
       "artifactName": "FerroGestor-Setup-${version}.${ext}"
     },
     "nsis": {

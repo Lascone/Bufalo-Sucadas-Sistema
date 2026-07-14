@@ -1,22 +1,9 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: ferrogestor-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ferrogestor
-      POSTGRES_PASSWORD: ferrogestor
-      POSTGRES_DB: ferrogestor
-    ports:
-      - "5432:5432"
-    volumes:
-      - ferrogestor_pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ferrogestor -d ferrogestor"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
+  # Este projeto NÃO depende de Docker para funcionar.
+  # O FerroGestor usa SQLite local (desktop + API de sync).
+  # Internet caída: o desktop continua operando normalmente.
+  #
+  # Redis permanece opcional e desligado por padrão.
   redis:
     image: redis:7-alpine
     container_name: ferrogestor-redis
@@ -29,5 +16,4 @@ services:
       - with-redis
 
 volumes:
-  ferrogestor_pgdata:
   ferrogestor_redis:

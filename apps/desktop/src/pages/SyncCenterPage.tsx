@@ -28,21 +28,21 @@ export function SyncCenterPage() {
             <button
               type="button"
               onClick={() => void refreshSync()}
-              className="rounded-md border border-steel-400/40 px-4 py-2 text-sm"
+              className="rounded-md border border-white/15 px-4 py-2 text-sm text-ink-100 hover:border-brand-400/40"
             >
               Atualizar
             </button>
             <button
               type="button"
               onClick={() => void runSyncNow()}
-              className="rounded-md bg-brand-500 px-4 py-2 text-sm text-white hover:bg-brand-700"
+              className="rounded-md bg-brand-500 px-4 py-2 text-sm font-semibold text-ink-950 hover:bg-brand-400"
             >
               Sincronizar agora
             </button>
             <button
               type="button"
               onClick={exportDiag}
-              className="rounded-md border border-steel-400/40 px-4 py-2 text-sm"
+              className="rounded-md border border-white/15 px-4 py-2 text-sm text-ink-100 hover:border-brand-400/40"
             >
               Exportar diagnóstico
             </button>
@@ -52,13 +52,13 @@ export function SyncCenterPage() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <PlaceholderCard>
-          <p className="text-sm text-steel-400">Conexão</p>
+          <p className="text-sm text-ink-300">Conexão</p>
           <p className="mt-1 text-xl font-semibold">
             {sync.online === null ? 'Desconhecido' : sync.online ? 'Online' : 'Offline'}
           </p>
         </PlaceholderCard>
         <PlaceholderCard>
-          <p className="text-sm text-steel-400">Última sincronização</p>
+          <p className="text-sm text-ink-300">Última sincronização</p>
           <p className="mt-1 text-sm">
             {sync.lastSyncAt
               ? new Date(sync.lastSyncAt).toLocaleString('pt-BR')
@@ -66,11 +66,11 @@ export function SyncCenterPage() {
           </p>
         </PlaceholderCard>
         <PlaceholderCard>
-          <p className="text-sm text-steel-400">Pendentes</p>
+          <p className="text-sm text-ink-300">Pendentes</p>
           <p className="mt-1 text-xl font-semibold">{sync.pendingCount}</p>
         </PlaceholderCard>
         <PlaceholderCard>
-          <p className="text-sm text-steel-400">Erros / Conflitos</p>
+          <p className="text-sm text-ink-300">Erros / Conflitos</p>
           <p className="mt-1 text-xl font-semibold">
             {sync.errorCount} / {sync.conflictCount}
           </p>
@@ -78,7 +78,7 @@ export function SyncCenterPage() {
       </div>
 
       {sync.lastError && (
-        <div className="mt-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
+        <div className="mt-4 rounded-md border border-red-500/40 bg-red-950/50 p-3 text-sm text-red-200">
           {sync.lastError}
         </div>
       )}
@@ -87,11 +87,11 @@ export function SyncCenterPage() {
         <h2 className="mb-2 font-display text-2xl">Histórico recente</h2>
         <PlaceholderCard>
           {sync.history.length === 0 ? (
-            <p className="text-sm text-steel-400">Nenhuma sincronização registrada ainda.</p>
+            <p className="text-sm text-ink-300">Nenhuma sincronização registrada ainda.</p>
           ) : (
             <ul className="space-y-2 text-sm">
               {sync.history.map((h) => (
-                <li key={h.at} className="flex flex-wrap gap-3 border-b border-steel-400/20 py-2">
+                <li key={h.at} className="flex flex-wrap gap-3 border-b border-white/10 py-2">
                   <span>{new Date(h.at).toLocaleString('pt-BR')}</span>
                   <span>push {h.pushed}</span>
                   <span>pull {h.pulled}</span>

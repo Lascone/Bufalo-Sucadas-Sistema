@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Inject,
   ForbiddenException,
   NotFoundException,
   BadRequestException,
@@ -12,8 +13,8 @@ import { AuthService } from '../auth/auth.service.js';
 @Injectable()
 export class DevicesService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly auth: AuthService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(AuthService) private readonly auth: AuthService,
   ) {}
 
   async register(input: {

@@ -10,6 +10,7 @@ export const ENTITY_CONFLICT_STRATEGY: Record<string, ConflictStrategy> = {
   PurchaseItem: ConflictStrategy.REQUIRES_REVERSAL,
   Sale: ConflictStrategy.REQUIRES_REVERSAL,
   SaleItem: ConflictStrategy.REQUIRES_REVERSAL,
+  SaleComment: ConflictStrategy.LAST_WRITE_WINS,
   StockMovement: ConflictStrategy.MOVEMENT_ONLY,
   StockProcessing: ConflictStrategy.MOVEMENT_ONLY,
   FinancialTransaction: ConflictStrategy.REQUIRES_REVERSAL,

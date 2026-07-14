@@ -1,4 +1,4 @@
-import { Body, Controller, Post, BadRequestException } from '@nestjs/common';
+import { Body, Controller, Post, BadRequestException, Inject } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { loginSchema } from '@ferrogestor/shared';
 import { AuthService } from './auth.service.js';
@@ -7,7 +7,7 @@ import { z } from 'zod';
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(@Inject(AuthService) private readonly auth: AuthService) {}
 
   @Post('login')
   async login(@Body() body: unknown) {

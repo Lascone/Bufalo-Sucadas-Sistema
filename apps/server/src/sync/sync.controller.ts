@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Inject,
   Param,
   Post,
   Query,
@@ -22,7 +23,7 @@ import { CurrentUser, JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.gua
 @UseGuards(JwtAuthGuard)
 @Controller('sync')
 export class SyncController {
-  constructor(private readonly sync: SyncService) {}
+  constructor(@Inject(SyncService) private readonly sync: SyncService) {}
 
   @Post('push')
   async push(@CurrentUser() user: JwtPayload, @Body() body: unknown) {

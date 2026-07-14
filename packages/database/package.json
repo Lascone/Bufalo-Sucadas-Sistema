@@ -8,15 +8,21 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./central": {
       "types": "./dist/central.d.ts",
-      "import": "./dist/central.js"
+      "import": "./dist/central.js",
+      "require": "./dist/central.js",
+      "default": "./dist/central.js"
     },
     "./local": {
       "types": "./dist/local.d.ts",
-      "import": "./dist/local.js"
+      "import": "./dist/local.js",
+      "require": "./dist/local.js",
+      "default": "./dist/local.js"
     }
   },
   "scripts": {
@@ -34,7 +40,8 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@prisma/client": "^6.3.1"
+    "@prisma/client": "^6.3.1",
+    "dotenv": "^17.4.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.7",

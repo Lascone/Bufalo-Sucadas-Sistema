@@ -222,17 +222,35 @@ async function main() {
     },
   });
 
-  await prisma.applicationSetting.upsert({
-    where: { companyId_key: { companyId: company.id, key: 'company.displayName' } },
-    update: { value: 'Bufalo Sucatas' },
-    create: {
-      companyId: company.id,
-      key: 'company.displayName',
-      value: 'Bufalo Sucatas',
-      description: 'Nome exibido no aplicativo',
-      syncStatus: 'SYNCED',
-    },
-  });
+  const settingsSeed: Array<{ key: string; value: unknown; description: string }> = [
+    { key: 'company.displayName', value: 'Bufalo Sucatas', description: 'Nome exibido no aplicativo' },
+    { key: 'company.cnpj', value: '', description: 'CNPJ da empresa' },
+    { key: 'company.address', value: '', description: 'Endereço para comprovantes' },
+    { key: 'company.phone', value: '', description: 'Telefone' },
+    { key: 'company.logoPath', value: '', description: 'Caminho do logo' },
+    { key: 'print.paper', value: 'A4', description: 'Formato de papel' },
+    { key: 'print.footerMessage', value: 'Obrigado pela preferência — Bufalo Sucatas', description: 'Rodapé PDF' },
+    { key: 'print.showQrCode', value: false, description: 'Exibir QR Code' },
+    { key: 'cash.requireDifferenceReason', value: true, description: 'Exigir justificativa no fechamento' },
+    { key: 'cash.allowMultipleOpen', value: false, description: 'Permitir múltiplos caixas abertos' },
+    { key: 'sales.commentsEnabled', value: true, description: 'Comentários em vendas' },
+    { key: 'sync.apiBaseUrl', value: 'http://localhost:3000/api/v1', description: 'URL da API' },
+    { key: 'sync.autoIntervalMinutes', value: 5, description: 'Intervalo de sync automático' },
+  ];
+
+  for (const s of settingsSeed) {
+    await prisma.applicationSetting.upsert({
+      where: { companyId_key: { companyId: company.id, key: s.key } },
+      update: { value: s.value as object, description: s.description },
+      create: {
+        companyId: company.id,
+        key: s.key,
+        value: s.value as object,
+        description: s.description,
+        syncStatus: 'SYNCED',
+      },
+    });
+  }
 
   console.log('Seed concluído.');
   console.log(`Empresa: ${company.tradeName} (${company.id})`);

@@ -681,10 +681,37 @@ model Sale {
   branch             Branch    @relation(fields: [branchId], references: [id])
   customer           Contact?  @relation("SaleCustomer", fields: [customerId], references: [id])
   items              SaleItem[]
+  comments           SaleComment[]
 
   @@unique([companyId, branchId, documentNumber])
   @@index([companyId, soldAt])
   @@map("sales")
+}
+
+model SaleComment {
+  id                 String    @id @default(uuid())
+  localId            Int?
+  companyId          String
+  branchId           String?
+  deviceId           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdByUserId    String?
+  version            Int       @default(1)
+  syncStatus         SyncStatus @default(PENDING)
+  syncedAt           DateTime?
+  deletedAt          DateTime?
+  originOperationId  String?   @unique
+
+  saleId             String
+  userId             String?
+  body               String
+  authorName         String?
+
+  sale               Sale      @relation(fields: [saleId], references: [id])
+
+  @@index([saleId, createdAt])
+  @@map("sale_comments")
 }
 
 model SaleItem {
