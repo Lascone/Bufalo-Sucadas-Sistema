@@ -18,7 +18,7 @@ function resolveDatabaseUrl(): string {
   const url = process.env.DATABASE_URL;
   if (!url) {
     throw new Error(
-      'DATABASE_URL não definido. Configure o SQLite central no arquivo .env na raiz do monorepo.',
+      'DATABASE_URL não definido. Configure PostgreSQL no arquivo .env na raiz do monorepo.',
     );
   }
   return url;

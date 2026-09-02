@@ -7,9 +7,26 @@ import {
 import path from 'node:path';
 import fs from 'node:fs';
 import electronUpdater from 'electron-updater';
-import { createBackup, listBackups } from './backup';
-import { getLocalDbPath, ensureLocalDataDir } from './local-db';
-import { getSyncSnapshot, enqueueSyncOp, runSyncCycle } from './sync-engine';
+import { createBackup, listBackups, restoreBackup } from './backup';
+import {
+  createDataBackup,
+  loadDataStore,
+  mergeDataStore,
+  persistNow,
+  restoreFromFile,
+} from './data-store';
+import { runDataDiagnostic } from './data-recovery';
+import { getLocalDbPath, ensureLocalDataDir, getDataDir, getBackupDir } from './local-db';
+import { getSyncSnapshot, runSyncCycle } from './sync-engine';
+import {
+  enqueueAndFlush,
+  flushOutbox,
+  loginAndRegister,
+  loadSession,
+  clearSession,
+  setOutboxWindow,
+  startOutboxWorker,
+} from './outbox-worker';
 
 const { autoUpdater } = electronUpdater;
 
@@ -61,6 +78,12 @@ function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
+
+  setOutboxWindow(mainWindow);
+  mainWindow.on('closed', () => {
+    setOutboxWindow(null);
+    mainWindow = null;
+  });
 }
 
 function setupAutoUpdater() {
@@ -96,11 +119,64 @@ function registerIpc() {
     company: 'Búfalo Sucatas',
     isPackaged: app.isPackaged,
     dbPath: getLocalDbPath(),
+    dataPath: path.join(getDataDir(), 'app-data.json'),
+    userDataDir: app.getPath('userData'),
+    backupDir: getBackupDir(),
   }));
 
+  ipcMain.handle('data:load', () => {
+    const data = loadDataStore();
+    return { data, stats: runDataDiagnostic().currentStats };
+  });
+
+  ipcMain.handle('data:persist', (_e, payload: Record<string, unknown>) => {
+    mergeDataStore(payload, 'renderer-save');
+    return { ok: true };
+  });
+
+  ipcMain.handle('data:importAll', (_e, payload: Record<string, unknown>) => {
+    persistNow(payload, 'import-localStorage');
+    return { ok: true, stats: runDataDiagnostic().currentStats };
+  });
+
+  ipcMain.handle('data:diagnose', () => runDataDiagnostic());
+
+  ipcMain.handle('data:restoreFile', (_e, filePath: string) => {
+    const data = restoreFromFile(filePath);
+    return { ok: true, data, stats: runDataDiagnostic().currentStats };
+  });
+
+  ipcMain.handle('data:backupNow', () => {
+    const target = createDataBackup('manual');
+    return { ok: true, path: target };
+  });
+
+  ipcMain.handle('data:openFolder', (_e, which: 'userData' | 'data' | 'backups') => {
+    const target =
+      which === 'backups'
+        ? getBackupDir()
+        : which === 'data'
+          ? getDataDir()
+          : app.getPath('userData');
+    shell.openPath(target);
+    return { ok: true, path: target };
+  });
+
+  ipcMain.handle('backup:restore', (_e, backupPath: string) => {
+    restoreBackup(backupPath);
+    return { ok: true };
+  });
+
   ipcMain.handle('sync:getSnapshot', () => getSyncSnapshot());
-  ipcMain.handle('sync:runNow', async () => runSyncCycle());
-  ipcMain.handle('sync:enqueue', (_e, op) => enqueueSyncOp(op));
+  ipcMain.handle('sync:runNow', async () => flushOutbox());
+  ipcMain.handle('sync:enqueue', (_e, op) => enqueueAndFlush(op));
+
+  ipcMain.handle('auth:getSession', () => loadSession());
+  ipcMain.handle('auth:login', async (_e, input) => loginAndRegister(input));
+  ipcMain.handle('auth:logout', () => {
+    clearSession();
+    return { ok: true };
+  });
 
   ipcMain.handle('backup:create', async (_e, reason?: string) =>
     createBackup(reason ?? 'manual'),
@@ -228,13 +304,24 @@ async function openWhatsAppPreferred(
 
 app.whenReady().then(() => {
   ensureLocalDataDir();
+  loadDataStore();
+  createDataBackup('startup');
   setupAutoUpdater();
   registerIpc();
   createWindow();
+  startOutboxWorker();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+app.on('before-quit', () => {
+  try {
+    createDataBackup('shutdown');
+  } catch {
+    // ignore backup errors on quit
+  }
 });
 
 app.on('window-all-closed', () => {

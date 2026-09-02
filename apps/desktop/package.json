@@ -1,6 +1,6 @@
 {
   "name": "@ferrogestor/desktop",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "main": "dist-electron/main.js",
   "private": true,
   "description": "Búfalo Sucata Gestor — Bufalo Sucatas",
@@ -10,8 +10,9 @@
     "preview": "vite preview",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "pack": "pnpm build && electron-builder --win nsis",
-    "release": "pnpm build && electron-builder --win nsis --publish always",
+    "pack": "pnpm build && electron-builder --win nsis zip",
+    "pack:zip": "pnpm build && electron-builder --win zip",
+    "release": "pnpm build && electron-builder --win nsis zip --publish always",
     "electron:dev": "vite"
   },
   "dependencies": {
@@ -53,6 +54,9 @@
     "appId": "br.com.bufalosucatas.gestor",
     "productName": "Bufalo Sucata Gestor",
     "copyright": "Copyright © Bufalo Sucatas",
+    "extraMetadata": {
+      "name": "bufalo-sucata-gestor"
+    },
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -66,10 +70,13 @@
     "extraResources": [],
     "win": {
       "target": [
-        "nsis"
+        "nsis",
+        "zip"
       ],
       "icon": "build/icon.png",
-      "artifactName": "BufaloSucataGestor-Setup-${version}.${ext}"
+      "artifactName": "BufaloSucataGestor-Setup-${version}.${ext}",
+      "sign": null,
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,

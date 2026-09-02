@@ -21,8 +21,8 @@ export function SyncCenterPage() {
   return (
     <div>
       <PageHeader
-        title="Central de Sincronização"
-        subtitle="Estado da conexão com o servidor, fila pendente, erros e histórico."
+        title="Conexão com o banco"
+        subtitle="Envio automático em tempo real para PostgreSQL. A fila local reenvia quando a internet voltar."
         actions={
           <div className="flex gap-2">
             <button

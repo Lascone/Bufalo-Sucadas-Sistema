@@ -33,6 +33,8 @@ const nav = [
 export function AppShell() {
   const loadAppInfo = useAppStore((s) => s.loadAppInfo);
   const refreshSync = useAppStore((s) => s.refreshSync);
+  const applyRemoteChanges = useAppStore((s) => s.applyRemoteChanges);
+  const dataRevision = useAppStore((s) => s.dataRevision);
 
   useEffect(() => {
     document.documentElement.classList.add('dark');
@@ -56,11 +58,23 @@ export function AppShell() {
         }
       });
     }, 60_000);
+
+    const unsubRemote = window.ferrogestor?.onRemoteChanges?.(() => {
+      void applyRemoteChanges();
+    });
+    const unsubOutbox = window.ferrogestor?.onOutboxSnapshot?.((snap) => {
+      useAppStore.setState((s) => ({
+        sync: { ...s.sync, ...(snap as Record<string, unknown>) },
+      }));
+    });
+
     return () => {
       clearInterval(id);
       clearInterval(closeId);
+      unsubRemote?.();
+      unsubOutbox?.();
     };
-  }, [loadAppInfo, refreshSync]);
+  }, [loadAppInfo, refreshSync, applyRemoteChanges]);
 
   return (
     <div className="flex min-h-screen text-ink-50">
@@ -118,7 +132,7 @@ export function AppShell() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <main className="flex-1 overflow-auto p-6 md:p-8">
-          <Outlet />
+          <Outlet key={dataRevision} />
         </main>
         <StatusFooter />
       </div>

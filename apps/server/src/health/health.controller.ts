@@ -13,24 +13,24 @@ export class HealthController {
 
   @Get()
   async check() {
-    let sqlite = 'up';
-    let sqliteDetail: string | undefined;
+    let postgres = 'up';
+    let postgresDetail: string | undefined;
     try {
       await this.prisma.db.$queryRawUnsafe('SELECT 1 AS ok');
     } catch (err) {
-      sqlite = 'down';
-      sqliteDetail = err instanceof Error ? err.message : String(err);
+      postgres = 'down';
+      postgresDetail = err instanceof Error ? err.message : String(err);
     }
 
-    const mongodb = this.mongo.isReady() ? 'up' : 'down';
+    const mongodb = this.mongo.isReady() ? 'up' : 'optional';
 
     return {
-      status: sqlite === 'up' && mongodb === 'up' ? 'ok' : 'degraded',
+      status: postgres === 'up' ? 'ok' : 'degraded',
       service: 'ferrogestor-api',
-      sqlite,
+      postgres,
       mongodb,
-      database: mongodb,
-      detail: sqliteDetail,
+      database: 'postgresql',
+      detail: postgresDetail,
       timestamp: new Date().toISOString(),
     };
   }

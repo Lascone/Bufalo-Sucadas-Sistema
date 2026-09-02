@@ -17,9 +17,14 @@ export function StatusFooter() {
           sync.online ? 'text-moss-400' : sync.online === false ? 'text-brand-400' : ''
         }
       >
-        {sync.online === null ? 'Conexão: —' : sync.online ? 'Online' : 'Offline'}
+        {sync.online === null
+          ? 'Conexão: —'
+          : sync.online
+            ? sync.pendingCount > 0
+              ? `Enviando… ${sync.pendingCount} na fila`
+              : 'Conectado ao banco'
+            : `Offline — ${sync.pendingCount} na fila`}
       </span>
-      <span>Pendentes: {sync.pendingCount}</span>
       <span className="ml-auto text-ink-300">v{appInfo?.version ?? '0.1.0'}</span>
     </footer>
   );

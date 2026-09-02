@@ -6,6 +6,7 @@ import { HealthModule } from './health/health.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { DevicesModule } from './devices/devices.module.js';
 import { SyncModule } from './sync/sync.module.js';
+import { RealtimeModule } from './realtime/realtime.module.js';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { SyncModule } from './sync/sync.module.js';
     AuthModule,
     DevicesModule,
     SyncModule,
+    RealtimeModule,
   ],
 })
 export class AppModule {}

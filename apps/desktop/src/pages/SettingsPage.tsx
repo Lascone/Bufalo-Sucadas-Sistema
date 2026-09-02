@@ -8,6 +8,7 @@ import {
   fieldClass,
 } from '../components/Page';
 import { getSettings, updateSettings, type AppSettings } from '../lib/settings';
+import { importFromLocalStorage, reloadLocalStore } from '../lib/local-store';
 import { useAppStore } from '../stores/app-store';
 
 function Section({
@@ -73,6 +74,26 @@ export function SettingsPage() {
   const [updatePhase, setUpdatePhase] = useState<UpdatePhase>('idle');
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
   const [downloadPct, setDownloadPct] = useState<number | null>(null);
+  const [dataMsg, setDataMsg] = useState<string | null>(null);
+  const [dataDiag, setDataDiag] = useState<Awaited<
+    ReturnType<NonNullable<typeof window.ferrogestor>['runDataDiagnostic']>
+  > | null>(null);
+  const [dataBusy, setDataBusy] = useState(false);
+
+  const refreshDataDiag = async () => {
+    if (!window.ferrogestor?.runDataDiagnostic) return;
+    setDataBusy(true);
+    try {
+      const diag = await window.ferrogestor.runDataDiagnostic();
+      setDataDiag(diag);
+    } finally {
+      setDataBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshDataDiag();
+  }, []);
 
   useEffect(() => {
     const api = window.ferrogestor;
@@ -378,10 +399,16 @@ export function SettingsPage() {
               <span className="text-ink-300">Versão:</span> {appInfo?.version}
             </p>
             <p className="mt-1 text-xs text-moss-400">
-              0.1.3 — corrigiu tela vazia do instalador + WhatsApp nos PDFs.
+              0.1.4 — dados salvos em arquivo + recuperação automática e diagnóstico.
             </p>
             <p className="mt-1 break-all">
-              <span className="text-ink-300">SQLite:</span> {appInfo?.dbPath ?? '—'}
+              <span className="text-ink-300">Dados (JSON):</span>{' '}
+              {(appInfo as { dataPath?: string })?.dataPath ??
+                dataDiag?.storePath ??
+                '—'}
+            </p>
+            <p className="mt-1 break-all">
+              <span className="text-ink-300">SQLite (sync):</span> {appInfo?.dbPath ?? '—'}
             </p>
           </div>
           {updateMsg && (
@@ -430,6 +457,162 @@ export function SettingsPage() {
               Backup manual
             </button>
           </div>
+        </Section>
+
+        <Section
+          title="Dados locais e recuperação"
+          hint="Se sumiu venda/compra após queda de luz ou reinício, use o diagnóstico abaixo."
+        >
+          {dataDiag && (
+            <div className="rounded-lg border border-white/10 bg-ink-900/40 px-3 py-3 text-sm">
+              <p>
+                <span className="text-ink-300">Registros ativos:</span>{' '}
+                <span className="font-semibold text-brand-300">
+                  {dataDiag.currentStats.total}
+                </span>
+                {dataDiag.currentStats.total === 0 && (
+                  <span className="ml-2 text-amber-300">— vazio, tente recuperar abaixo</span>
+                )}
+              </p>
+              <p className="mt-2 break-all text-xs text-ink-400">
+                Pasta do app: {dataDiag.userDataDir}
+              </p>
+              <p className="mt-1 break-all text-xs text-ink-400">
+                Backups: {dataDiag.backupDir}
+              </p>
+            </div>
+          )}
+
+          {dataDiag?.warnings.map((w) => (
+            <p
+              key={w}
+              className="rounded-lg border border-amber-500/40 bg-amber-950/30 px-3 py-2 text-sm text-amber-100"
+            >
+              {w}
+            </p>
+          ))}
+
+          {dataMsg && (
+            <p className="rounded-lg border border-moss-500/30 bg-moss-700/20 px-3 py-2 text-sm text-moss-200">
+              {dataMsg}
+            </p>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <PrimaryButton type="button" disabled={dataBusy} onClick={() => void refreshDataDiag()}>
+              {dataBusy ? 'Analisando…' : 'Buscar dados perdidos'}
+            </PrimaryButton>
+            <button
+              type="button"
+              className="rounded-lg border border-white/15 bg-ink-900/60 px-4 py-2.5 text-sm font-medium text-ink-50 transition hover:border-brand-400/50"
+              onClick={() => {
+                void importFromLocalStorage().then((n) => {
+                  setDataMsg(
+                    n > 0
+                      ? `Importados ${n} registros do navegador interno. Recarregue a página (F5).`
+                      : 'Nada encontrado no navegador interno desta instalação.',
+                  );
+                  void refreshDataDiag();
+                });
+              }}
+            >
+              Importar do navegador interno
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-white/15 bg-ink-900/60 px-4 py-2.5 text-sm font-medium text-ink-50 transition hover:border-brand-400/50"
+              onClick={() =>
+                void window.ferrogestor?.backupDataNow()?.then((r) => {
+                  setDataMsg(r?.path ? `Backup salvo: ${r.path}` : 'Backup criado.');
+                  void refreshDataDiag();
+                })
+              }
+            >
+              Backup dos cadastros (JSON)
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-white/15 bg-ink-900/60 px-4 py-2.5 text-sm font-medium text-ink-50 transition hover:border-brand-400/50"
+              onClick={() => void window.ferrogestor?.openDataFolder('userData')}
+            >
+              Abrir pasta do app
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-white/15 bg-ink-900/60 px-4 py-2.5 text-sm font-medium text-ink-50 transition hover:border-brand-400/50"
+              onClick={() => void window.ferrogestor?.openDataFolder('backups')}
+            >
+              Abrir pasta de backups
+            </button>
+          </div>
+
+          {dataDiag && dataDiag.candidates.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border border-white/10">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-ink-900/80 text-ink-300">
+                  <tr>
+                    <th className="px-2 py-2">Origem</th>
+                    <th className="px-2 py-2">Tipo</th>
+                    <th className="px-2 py-2">Registros</th>
+                    <th className="px-2 py-2">Tamanho</th>
+                    <th className="px-2 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {dataDiag.candidates.slice(0, 12).map((c) => (
+                    <tr key={c.id} className="border-t border-white/5">
+                      <td className="max-w-[12rem] truncate px-2 py-2" title={c.path}>
+                        {c.label}
+                      </td>
+                      <td className="px-2 py-2">{c.kind}</td>
+                      <td className="px-2 py-2">{c.totalRecords || '—'}</td>
+                      <td className="px-2 py-2">
+                        {c.sizeBytes > 0 ? `${Math.round(c.sizeBytes / 1024)} KB` : '—'}
+                      </td>
+                      <td className="px-2 py-2">
+                        {c.kind === 'data-backup' || c.kind === 'app-data' ? (
+                          <button
+                            type="button"
+                            className="text-brand-300 hover:underline"
+                            onClick={() => {
+                              if (
+                                !confirm(
+                                  'Restaurar este arquivo substitui os dados atuais. Continuar?',
+                                )
+                              ) {
+                                return;
+                              }
+                              void window.ferrogestor
+                                ?.restoreDataFile(c.path)
+                                ?.then((r) => {
+                                  if (r?.data) reloadLocalStore(r.data);
+                                  setDataMsg(`Restaurado de ${c.path}. Pressione F5.`);
+                                  void refreshDataDiag();
+                                });
+                            }}
+                          >
+                            Restaurar
+                          </button>
+                        ) : (
+                          <span className="text-ink-500" title={c.hint}>
+                            {c.hint.slice(0, 24)}…
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {dataDiag?.tips && (
+            <ul className="list-disc space-y-1 pl-5 text-xs text-ink-400">
+              {dataDiag.tips.map((t) => (
+                <li key={t}>{t}</li>
+              ))}
+            </ul>
+          )}
         </Section>
       </div>
 
