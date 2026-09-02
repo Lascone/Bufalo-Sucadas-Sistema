@@ -11,13 +11,28 @@ const queryClient = new QueryClient();
 
 function Bootstrap() {
   const [ready, setReady] = useState(false);
+  const [bootError, setBootError] = useState<string | null>(null);
   const loadSession = useAppStore((s) => s.loadSession);
 
   useEffect(() => {
     void initLocalStore()
       .then(() => loadSession())
-      .then(() => setReady(true));
+      .then(() => setReady(true))
+      .catch((err) => {
+        setBootError(err instanceof Error ? err.message : String(err));
+      });
   }, [loadSession]);
+
+  if (bootError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-ink-950 p-6 text-ink-100">
+        <div className="max-w-md text-center">
+          <p className="text-lg font-semibold text-brand-400">Erro ao iniciar</p>
+          <p className="mt-2 text-sm text-ink-300">{bootError}</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!ready) {
     return (

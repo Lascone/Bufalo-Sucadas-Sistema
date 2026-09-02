@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   ipcMain,
+  Menu,
   shell,
 } from 'electron';
 import path from 'node:path';
@@ -69,7 +70,17 @@ function createWindow() {
   } else if (!app.isPackaged) {
     mainWindow.loadURL('http://localhost:5173');
   } else {
-    mainWindow.loadFile(path.join(dist, 'index.html'));
+    void mainWindow.loadFile(path.join(dist, 'index.html')).catch((err) => {
+      console.error('Falha ao carregar UI:', err);
+    });
+  }
+
+  mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
+    console.error('did-fail-load', code, description, url);
+  });
+
+  if (app.isPackaged) {
+    Menu.setApplicationMenu(null);
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -303,11 +314,11 @@ async function openWhatsAppPreferred(
 app.whenReady().then(() => {
   ensureLocalDataDir();
   loadDataStore();
-  createDataBackup('startup');
   setupAutoUpdater();
   registerIpc();
   createWindow();
   startOutboxWorker();
+  void createDataBackup('startup');
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
