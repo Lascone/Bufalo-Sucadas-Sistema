@@ -12,6 +12,8 @@ export const DATA_KEYS = [
   'contacts',
   'materials',
   'material-photos',
+  'partner-photos',
+  'local-operator',
   'patio-movements',
   'finance-days',
   'purchases',
@@ -58,6 +60,79 @@ function countRecords(data: DataStore): Record<string, number> {
 
 function totalRecords(counts: Record<string, number>): number {
   return Object.values(counts).reduce((a, b) => a + b, 0);
+}
+
+function legacyUserDataDirs(): string[] {
+  const appData = process.env.APPDATA ?? '';
+  const names = [
+    'Bufalo Sucata Gestor',
+    '@ferrogestor/desktop',
+    'bufalo-sucata-gestor',
+    'ferrogestor',
+    'Búfalo Sucata Gestor',
+  ];
+  const dirs = new Set<string>();
+  for (const name of names) {
+    dirs.add(path.join(appData, name));
+  }
+  if (appData && fs.existsSync(appData)) {
+    for (const entry of fs.readdirSync(appData, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (/bufalo|ferro|gestor|sucata/i.test(entry.name)) {
+        dirs.add(path.join(appData, entry.name));
+      }
+    }
+  }
+  const current = getDataDir().replace(/[/\\]data$/i, '');
+  return [...dirs].filter((d) => d !== current && fs.existsSync(d));
+}
+
+function copyDirIfExists(from: string, to: string): void {
+  if (!fs.existsSync(from)) return;
+  if (!fs.existsSync(to)) fs.mkdirSync(to, { recursive: true });
+  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+    const src = path.join(from, entry.name);
+    const dest = path.join(to, entry.name);
+    if (entry.isDirectory()) copyDirIfExists(src, dest);
+    else if (!fs.existsSync(dest)) fs.copyFileSync(src, dest);
+  }
+}
+
+/** Se o perfil atual está vazio, importa o app-data (e mídia) do perfil legado mais completo. */
+export function migrateFromLegacyProfiles(): {
+  imported: boolean;
+  fromDir: string | null;
+  totalRecords: number;
+} {
+  const currentPath = storePath();
+  const current = readJsonFile(currentPath);
+  const currentTotal = current ? totalRecords(countRecords(current)) : 0;
+  if (currentTotal > 0) {
+    return { imported: false, fromDir: null, totalRecords: currentTotal };
+  }
+
+  let best: { dir: string; data: DataStore; total: number } | null = null;
+  for (const dir of legacyUserDataDirs()) {
+    const candidatePath = path.join(dir, 'data', DATA_STORE_FILE);
+    const data = readJsonFile(candidatePath);
+    if (!data) continue;
+    const total = totalRecords(countRecords(data));
+    if (!best || total > best.total) {
+      best = { dir, data, total };
+    }
+  }
+
+  if (!best || best.total === 0) {
+    return { imported: false, fromDir: null, totalRecords: 0 };
+  }
+
+  cache = best.data;
+  writeDataStore(cache, 'legacy-import');
+  copyDirIfExists(
+    path.join(best.dir, 'media'),
+    path.join(path.dirname(getDataDir()), 'media'),
+  );
+  return { imported: true, fromDir: best.dir, totalRecords: best.total };
 }
 
 export function loadDataStore(): DataStore {

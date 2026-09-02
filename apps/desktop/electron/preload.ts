@@ -34,6 +34,13 @@ export type FerroGestorApi = {
   }) => Promise<{ photoPath: string; fullPath: string }>;
   getMaterialPhotoDataUrl: (photoPath: string) => Promise<string | null>;
   deleteMaterialPhoto: (photoPath: string) => Promise<boolean>;
+  savePartnerPhoto: (payload: {
+    partnerName: string;
+    base64: string;
+    ext: string;
+  }) => Promise<{ photoPath: string; fullPath: string }>;
+  getPartnerPhotoDataUrl: (photoPath: string) => Promise<string | null>;
+  deletePartnerPhoto: (photoPath: string) => Promise<boolean>;
   sharePdfWhatsApp: (payload: {
     fileName: string;
     base64: string;
@@ -97,6 +104,11 @@ const api: FerroGestorApi = {
     ipcRenderer.invoke('media:getMaterialPhotoDataUrl', photoPath),
   deleteMaterialPhoto: (photoPath) =>
     ipcRenderer.invoke('media:deleteMaterialPhoto', photoPath),
+  savePartnerPhoto: (payload) => ipcRenderer.invoke('media:savePartnerPhoto', payload),
+  getPartnerPhotoDataUrl: (photoPath) =>
+    ipcRenderer.invoke('media:getPartnerPhotoDataUrl', photoPath),
+  deletePartnerPhoto: (photoPath) =>
+    ipcRenderer.invoke('media:deletePartnerPhoto', photoPath),
   sharePdfWhatsApp: (payload) => ipcRenderer.invoke('share:pdfWhatsApp', payload),
   getSession: () => ipcRenderer.invoke('auth:getSession'),
   login: (input) => ipcRenderer.invoke('auth:login', input),

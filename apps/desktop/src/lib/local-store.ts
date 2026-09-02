@@ -7,6 +7,8 @@ export const LOCAL_DATA_KEYS = [
   'contacts',
   'materials',
   'material-photos',
+  'partner-photos',
+  'local-operator',
   'patio-movements',
   'finance-days',
   'purchases',

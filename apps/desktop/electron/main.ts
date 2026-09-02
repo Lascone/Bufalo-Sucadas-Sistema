@@ -13,6 +13,7 @@ import {
   createDataBackup,
   loadDataStore,
   mergeDataStore,
+  migrateFromLegacyProfiles,
   persistNow,
   restoreFromFile,
 } from './data-store';
@@ -28,7 +29,9 @@ import {
   setOutboxWindow,
   startOutboxWorker,
 } from './outbox-worker';
+import { configureUserDataPath } from './user-data-path';
 
+configureUserDataPath();
 function distRoot() {
   if (app.isPackaged) {
     return path.join(app.getAppPath(), 'dist');
@@ -49,6 +52,8 @@ let mainWindow: BrowserWindow | null = null;
 function createWindow() {
   const dist = distRoot();
   const pub = publicRoot();
+  const indexHtml = path.join(dist, 'index.html');
+
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
@@ -67,10 +72,10 @@ function createWindow() {
   if (!app.isPackaged && process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
-  } else if (!app.isPackaged) {
+  } else if (!app.isPackaged && process.env.FORCE_LOAD_FILE !== '1') {
     mainWindow.loadURL('http://localhost:5173');
   } else {
-    void mainWindow.loadFile(path.join(dist, 'index.html')).catch((err) => {
+    void mainWindow.loadFile(indexHtml).catch((err) => {
       console.error('Falha ao carregar UI:', err);
     });
   }
@@ -205,6 +210,49 @@ function registerIpc() {
   });
 
   ipcMain.handle(
+    'media:savePartnerPhoto',
+    async (_e, payload: { partnerName: string; base64: string; ext: string }) => {
+      const mediaDir = path.join(app.getPath('userData'), 'media', 'partners');
+      if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
+      const safe =
+        payload.partnerName.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase() || 'partner';
+      const ext = (payload.ext || 'jpg').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
+      const fileName = `${safe}.${ext}`;
+      const fullPath = path.join(mediaDir, fileName);
+      fs.writeFileSync(fullPath, Buffer.from(payload.base64, 'base64'));
+      return { photoPath: fileName, fullPath };
+    },
+  );
+
+  ipcMain.handle('media:getPartnerPhotoDataUrl', async (_e, photoPath: string) => {
+    if (!photoPath || photoPath.includes('..') || path.isAbsolute(photoPath)) {
+      return null;
+    }
+    const fullPath = path.join(app.getPath('userData'), 'media', 'partners', photoPath);
+    if (!fs.existsSync(fullPath)) return null;
+    const buf = fs.readFileSync(fullPath);
+    const ext = path.extname(photoPath).slice(1).toLowerCase() || 'jpeg';
+    const mime =
+      ext === 'png'
+        ? 'image/png'
+        : ext === 'webp'
+          ? 'image/webp'
+          : ext === 'gif'
+            ? 'image/gif'
+            : 'image/jpeg';
+    return `data:${mime};base64,${buf.toString('base64')}`;
+  });
+
+  ipcMain.handle('media:deletePartnerPhoto', async (_e, photoPath: string) => {
+    if (!photoPath || photoPath.includes('..') || path.isAbsolute(photoPath)) {
+      return false;
+    }
+    const fullPath = path.join(app.getPath('userData'), 'media', 'partners', photoPath);
+    if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+    return true;
+  });
+
+  ipcMain.handle(
     'media:saveMaterialPhoto',
     async (
       _e,
@@ -313,6 +361,12 @@ async function openWhatsAppPreferred(
 
 app.whenReady().then(() => {
   ensureLocalDataDir();
+  const migrated = migrateFromLegacyProfiles();
+  if (migrated.imported) {
+    console.info(
+      `Dados importados de ${migrated.fromDir} (${migrated.totalRecords} registros)`,
+    );
+  }
   loadDataStore();
   setupAutoUpdater();
   registerIpc();

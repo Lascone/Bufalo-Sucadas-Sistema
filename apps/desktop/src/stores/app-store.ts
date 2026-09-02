@@ -24,19 +24,30 @@ type SyncSnapshot = {
 
 type AppState = {
   theme: 'light' | 'dark';
-  authenticated: boolean;
-  authChecked: boolean;
+  operatorReady: boolean;
+  serverLoggedIn: boolean;
   appInfo: { version: string; name: string; company: string; dbPath?: string; dataPath?: string } | null;
   session: {
     username: string;
     branchName: string;
     deviceName: string;
   };
+  serverSession: {
+    username: string;
+    deviceName: string;
+  } | null;
   sync: SyncSnapshot;
   dataRevision: number;
   toggleTheme: () => void;
   loadAppInfo: () => Promise<void>;
+  selectOperator: (name: string) => void;
   loadSession: () => Promise<void>;
+  loginServer: (input: {
+    apiBaseUrl: string;
+    username: string;
+    password: string;
+    deviceName: string;
+  }) => Promise<void>;
   logout: () => Promise<void>;
   refreshSync: () => Promise<void>;
   runSyncNow: () => Promise<void>;
@@ -55,14 +66,15 @@ const emptySync: SyncSnapshot = {
 
 export const useAppStore = create<AppState>((set, get) => ({
   theme: 'dark',
-  authenticated: false,
-  authChecked: false,
+  operatorReady: false,
+  serverLoggedIn: false,
   appInfo: { version: APP_VERSION, name: APP_NAME, company: APP_COMPANY },
   session: {
-    username: '—',
+    username: '',
     branchName: 'Matriz',
-    deviceName: '—',
+    deviceName: 'Escritório',
   },
+  serverSession: null,
   sync: emptySync,
   dataRevision: 0,
   toggleTheme: () =>
@@ -81,14 +93,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     }
   },
+  selectOperator: (name) => {
+    const trimmed = name.trim();
+    saveJson('local-operator', { username: trimmed });
+    set({
+      operatorReady: true,
+      session: {
+        username: trimmed,
+        branchName: 'Matriz',
+        deviceName: 'Escritório',
+      },
+    });
+  },
   loadSession: async () => {
     if (!window.ferrogestor?.getSession) {
-      set({ authChecked: true, authenticated: true });
+      set({ serverLoggedIn: false, serverSession: null });
       return;
     }
     const s = await window.ferrogestor.getSession();
     if (!s) {
-      set({ authChecked: true, authenticated: false });
+      set({ serverLoggedIn: false, serverSession: null });
+      await get().refreshSync();
       return;
     }
     saveJson('session', {
@@ -98,19 +123,28 @@ export const useAppStore = create<AppState>((set, get) => ({
       userId: s.user.id,
     });
     set({
-      authChecked: true,
-      authenticated: true,
-      session: {
+      serverLoggedIn: true,
+      serverSession: {
         username: s.user.username,
-        branchName: 'Matriz',
         deviceName: s.deviceName ?? 'PC',
       },
     });
     await get().refreshSync();
   },
+  loginServer: async (input) => {
+    if (!window.ferrogestor?.login) {
+      throw new Error('Login ao servidor disponível apenas no app instalado.');
+    }
+    await window.ferrogestor.login(input);
+    await get().loadSession();
+  },
   logout: async () => {
     await window.ferrogestor?.logout?.();
-    set({ authenticated: false, sync: emptySync });
+    set({
+      serverLoggedIn: false,
+      serverSession: null,
+      sync: emptySync,
+    });
   },
   refreshSync: async () => {
     if (!window.ferrogestor) return;

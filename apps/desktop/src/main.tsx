@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter } from 'react-router-dom';
+import { HashRouter } from 'react-router-dom';
 import { App } from './App';
+import { OperatorPickerPage } from './pages/OperatorPickerPage';
 import { initLocalStore } from './lib/local-store';
 import { useAppStore } from './stores/app-store';
 import './styles.css';
@@ -12,6 +13,7 @@ const queryClient = new QueryClient();
 function Bootstrap() {
   const [ready, setReady] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
+  const operatorReady = useAppStore((s) => s.operatorReady);
   const loadSession = useAppStore((s) => s.loadSession);
 
   useEffect(() => {
@@ -42,11 +44,15 @@ function Bootstrap() {
     );
   }
 
+  if (!operatorReady) {
+    return <OperatorPickerPage />;
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      <HashRouter>
         <App />
-      </BrowserRouter>
+      </HashRouter>
     </QueryClientProvider>
   );
 }

@@ -1,5 +1,4 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
-import type { ReactNode } from 'react';
 import { AppShell } from './layout/AppShell';
 import { DashboardPage } from './pages/DashboardPage';
 import { ContactsPage } from './pages/ContactsPage';
@@ -11,36 +10,11 @@ import { FinancePage } from './pages/FinancePage';
 import { SyncCenterPage } from './pages/SyncCenterPage';
 import { ConflictsPage } from './pages/ConflictsPage';
 import { SettingsPage } from './pages/SettingsPage';
-import { LoginPage } from './pages/LoginPage';
-import { useAppStore } from './stores/app-store';
-
-function RequireAuth({ children }: { children: ReactNode }) {
-  const authenticated = useAppStore((s) => s.authenticated);
-  const authChecked = useAppStore((s) => s.authChecked);
-  if (!authChecked) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-ink-950 text-ink-200">
-        Carregando sessão…
-      </div>
-    );
-  }
-  if (!authenticated) {
-    return <Navigate to="/login" replace />;
-  }
-  return <>{children}</>;
-}
 
 export function App() {
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route
-        element={
-          <RequireAuth>
-            <AppShell />
-          </RequireAuth>
-        }
-      >
+      <Route element={<AppShell />}>
         <Route index element={<DashboardPage />} />
         <Route path="contatos" element={<ContactsPage />} />
         <Route path="materiais" element={<MaterialsPage />} />

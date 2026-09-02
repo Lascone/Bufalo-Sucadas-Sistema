@@ -70,6 +70,13 @@ type FerroGestorApi = {
   }) => Promise<{ photoPath: string; fullPath: string }>;
   getMaterialPhotoDataUrl: (photoPath: string) => Promise<string | null>;
   deleteMaterialPhoto: (photoPath: string) => Promise<boolean>;
+  savePartnerPhoto: (payload: {
+    partnerName: string;
+    base64: string;
+    ext: string;
+  }) => Promise<{ photoPath: string; fullPath: string }>;
+  getPartnerPhotoDataUrl: (photoPath: string) => Promise<string | null>;
+  deletePartnerPhoto: (photoPath: string) => Promise<boolean>;
   sharePdfWhatsApp: (payload: {
     fileName: string;
     base64: string;

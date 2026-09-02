@@ -1,6 +1,6 @@
 {
   "name": "ferrogestor",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "FerroGestor — sistema de gestão para ferro-velho e recicláveis (Bufalo Sucatas)",
   "packageManager": "pnpm@9.15.4",

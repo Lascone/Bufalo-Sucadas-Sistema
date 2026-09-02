@@ -9,6 +9,12 @@ import {
 } from '../components/Page';
 import { getSettings, updateSettings, type AppSettings } from '../lib/settings';
 import { importFromLocalStorage, reloadLocalStore } from '../lib/local-store';
+import {
+  clearPartnerPhoto,
+  partnerInitials,
+  resolvePartnerPhotoSrc,
+  savePartnerPhoto,
+} from '../lib/partner-photos';
 import { useAppStore } from '../stores/app-store';
 
 function Section({
@@ -65,6 +71,167 @@ type UpdatePhase =
   | 'ready'
   | 'error'
   | 'dev';
+
+function PartnerPhotoRow({
+  name,
+  onNameChange,
+  onRemove,
+}: {
+  name: string;
+  onNameChange: (value: string) => void;
+  onRemove?: () => void;
+}) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void resolvePartnerPhotoSrc(name).then((url) => {
+      if (active) setSrc(url);
+    });
+    return () => {
+      active = false;
+    };
+  }, [name]);
+
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-ink-900/40 p-3">
+      <label className="cursor-pointer">
+        {src ? (
+          <img
+            src={src}
+            alt={name}
+            className="h-12 w-12 rounded-full border border-brand-500/40 object-cover"
+          />
+        ) : (
+          <span className="flex h-12 w-12 items-center justify-center rounded-full border border-brand-500/40 bg-ink-800 text-sm font-bold text-brand-300">
+            {partnerInitials(name || '?')}
+          </span>
+        )}
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          disabled={busy || !name.trim()}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (!file || !name.trim()) return;
+            setBusy(true);
+            void savePartnerPhoto(name, file)
+              .then(() => resolvePartnerPhotoSrc(name))
+              .then((url) => setSrc(url))
+              .finally(() => setBusy(false));
+          }}
+        />
+      </label>
+      <input
+        className={`min-w-0 flex-1 ${fieldClass}`}
+        value={name}
+        placeholder="Nome do recebedor"
+        onChange={(e) => onNameChange(e.target.value)}
+      />
+      {src && (
+        <GhostButton
+          type="button"
+          className="!px-2 !py-1.5 text-xs"
+          onClick={() => {
+            setBusy(true);
+            void clearPartnerPhoto(name)
+              .then(() => setSrc(null))
+              .finally(() => setBusy(false));
+          }}
+        >
+          Sem foto
+        </GhostButton>
+      )}
+      {onRemove && (
+        <GhostButton type="button" className="!px-2 !py-1.5 text-xs" onClick={onRemove}>
+          Remover
+        </GhostButton>
+      )}
+    </div>
+  );
+}
+
+function ServerLoginPanel({ apiBaseUrl }: { apiBaseUrl: string }) {
+  const serverLoggedIn = useAppStore((s) => s.serverLoggedIn);
+  const serverSession = useAppStore((s) => s.serverSession);
+  const loginServer = useAppStore((s) => s.loginServer);
+  const logout = useAppStore((s) => s.logout);
+  const [username, setUsername] = useState('admin');
+  const [password, setPassword] = useState('');
+  const [deviceName, setDeviceName] = useState('Escritório');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  if (serverLoggedIn && serverSession) {
+    return (
+      <div className="rounded-lg border border-moss-500/30 bg-moss-700/10 px-3 py-3 text-sm">
+        <p className="text-moss-300">
+          Conectado ao servidor como <strong>{serverSession.username}</strong> (
+          {serverSession.deviceName})
+        </p>
+        <GhostButton type="button" className="mt-2 !py-1.5 text-xs" onClick={() => void logout()}>
+          Sair do servidor
+        </GhostButton>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-ink-900/40 px-3 py-3">
+      <p className="text-xs text-ink-300">
+        Login opcional — só necessário para enviar dados ao PostgreSQL.
+      </p>
+      {error && (
+        <p className="mt-2 rounded border border-red-500/40 bg-red-950/40 px-2 py-1 text-xs text-red-200">
+          {error}
+        </p>
+      )}
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <input
+          className={fieldClass}
+          placeholder="Usuário"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+        />
+        <input
+          type="password"
+          className={fieldClass}
+          placeholder="Senha"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <input
+          className={`sm:col-span-2 ${fieldClass}`}
+          placeholder="Nome deste PC"
+          value={deviceName}
+          onChange={(e) => setDeviceName(e.target.value)}
+        />
+      </div>
+      <PrimaryButton
+        type="button"
+        disabled={loading}
+        className="mt-3"
+        onClick={() => {
+          setError(null);
+          setLoading(true);
+          void loginServer({
+            apiBaseUrl: apiBaseUrl.trim() || 'http://localhost:3000/api/v1',
+            username: username.trim(),
+            password,
+            deviceName: deviceName.trim() || 'PC Sucata',
+          })
+            .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+            .finally(() => setLoading(false));
+        }}
+      >
+        {loading ? 'Conectando…' : 'Conectar ao servidor'}
+      </PrimaryButton>
+    </div>
+  );
+}
 
 export function SettingsPage() {
   const appInfo = useAppStore((s) => s.appInfo);
@@ -273,40 +440,33 @@ export function SettingsPage() {
 
         <Section
           title="Recebedores"
-          hint="Quem pode receber nas vendas (PIX/dinheiro). Padrão: Keity e Steve — edite ou adicione mais."
+          hint="Quem pode receber nas vendas (PIX/dinheiro). Padrão: Keity e Steve — edite, foto de perfil ou adicione mais."
         >
-          <Field label="Nomes dos recebedores">
-            <div className="grid gap-2">
+          <Field label="Nomes e fotos dos recebedores">
+            <div className="grid gap-3">
               {(form['sales.partners'] ?? ['Keity', 'Steve']).map((name, idx) => (
-                <div key={idx} className="flex gap-2">
-                  <input
-                    className={`flex-1 ${fieldClass}`}
-                    value={name}
-                    placeholder={`Recebedor ${idx + 1}`}
-                    onChange={(e) => {
-                      const next = [...(form['sales.partners'] ?? [])];
-                      next[idx] = e.target.value;
-                      setField('sales.partners', next);
-                    }}
-                  />
-                  {(form['sales.partners']?.length ?? 0) > 1 && (
-                    <GhostButton
-                      type="button"
-                      className="!px-2 !py-1.5 text-xs"
-                      onClick={() => {
-                        const next = (form['sales.partners'] ?? []).filter(
-                          (_, i) => i !== idx,
-                        );
-                        setField(
-                          'sales.partners',
-                          next.length ? next : ['Keity', 'Steve'],
-                        );
-                      }}
-                    >
-                      Remover
-                    </GhostButton>
-                  )}
-                </div>
+                <PartnerPhotoRow
+                  key={idx}
+                  name={name}
+                  onNameChange={(value) => {
+                    const next = [...(form['sales.partners'] ?? [])];
+                    next[idx] = value;
+                    setField('sales.partners', next);
+                  }}
+                  onRemove={
+                    (form['sales.partners']?.length ?? 0) > 1
+                      ? () => {
+                          const next = (form['sales.partners'] ?? []).filter(
+                            (_, i) => i !== idx,
+                          );
+                          setField(
+                            'sales.partners',
+                            next.length ? next : ['Keity', 'Steve'],
+                          );
+                        }
+                      : undefined
+                  }
+                />
               ))}
               <GhostButton
                 type="button"
@@ -365,8 +525,8 @@ export function SettingsPage() {
         </Section>
 
         <Section
-          title="Sincronização"
-          hint="Ligação com o servidor central (quando online)."
+          title="Sincronização com servidor"
+          hint="Opcional. O app funciona 100% local; configure só se quiser enviar ao PostgreSQL."
         >
           <Field label="URL da API">
             <input
@@ -375,6 +535,7 @@ export function SettingsPage() {
               onChange={(e) => setField('sync.apiBaseUrl', e.target.value)}
             />
           </Field>
+          <ServerLoginPanel apiBaseUrl={form['sync.apiBaseUrl'] ?? ''} />
           <Field label="Intervalo de sync automático (minutos)">
             <input
               className={fieldClass}
