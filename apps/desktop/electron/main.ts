@@ -6,7 +6,7 @@ import {
 } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
-import electronUpdater from 'electron-updater';
+import { autoUpdater } from 'electron-updater';
 import { createBackup, listBackups, restoreBackup } from './backup';
 import {
   createDataBackup,
@@ -27,8 +27,6 @@ import {
   setOutboxWindow,
   startOutboxWorker,
 } from './outbox-worker';
-
-const { autoUpdater } = electronUpdater;
 
 function distRoot() {
   if (app.isPackaged) {
