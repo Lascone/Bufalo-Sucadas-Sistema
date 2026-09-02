@@ -1,13 +1,5 @@
-# Seed local
+# Seed central (PostgreSQL)
 
-O seed (`pnpm db:seed`) grava no **SQLite central** configurado em `DATABASE_URL`.
-Não precisa de Docker nem MariaDB remoto.
+O seed (`pnpm db:seed`) grava no **PostgreSQL central** apontado por `DATABASE_URL` / config local (ver `packages/shared/src/central-config.ts`). Não versionar host/IP público no repositório.
 
-Credenciais padrão após o seed:
-
-- usuário: `admin`
-- senha: `Admin@123`
-- empresa: Bufalo Sucatas Ltda
-- filial: Matriz
-
-Materiais seed: ferro, cobre, alumínio, bronze, latão, inox, papelão, plástico, sucata mista.
+Usuário API após seed: **admin** / **BFSucata!2026**

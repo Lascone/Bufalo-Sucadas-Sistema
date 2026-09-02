@@ -1,5 +1,7 @@
 const PREFIX = 'ferrogestor:';
 
+export { PREFIX };
+
 export function loadJson<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(PREFIX + key);
@@ -32,13 +34,24 @@ export async function enqueueSyncOp(input: {
     userId: '00000000-0000-4000-8000-000000000013',
   });
 
+  let version = input.version;
+  if (version === undefined) {
+    if (input.action === 'CREATE') {
+      version = 1;
+    } else {
+      // Bump: UPDATE/DELETE sobe a partir da versão no payload ou 2
+      const fromPayload = Number(input.payload.version);
+      version = Number.isFinite(fromPayload) && fromPayload > 0 ? fromPayload + 1 : 2;
+    }
+  }
+
   const op = {
     originOperationId: newId(),
     entityType: input.entityType,
     entityId: input.entityId,
     action: input.action,
-    payload: input.payload,
-    version: input.version ?? 1,
+    payload: { ...input.payload, version },
+    version,
     companyId: session.companyId,
     branchId: session.branchId,
     deviceId: session.deviceId,

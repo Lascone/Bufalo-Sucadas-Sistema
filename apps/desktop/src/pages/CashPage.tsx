@@ -25,7 +25,7 @@ export function CashPage() {
 
   const [openingBalance, setOpeningBalance] = useState('0');
   const [openNotes, setOpenNotes] = useState('');
-  const [movType, setMovType] = useState<'ENTRADA' | 'SAIDA' | 'SANGRIA' | 'SUPRIMENTO' | 'VENDA_RECEBIDA' | 'DESPESA'>('ENTRADA');
+  const [movType, setMovType] = useState<'ENTRADA' | 'SAIDA' | 'SANGRIA' | 'SUPRIMENTO' | 'VENDA_RECEBIDA' | 'TROCADO' | 'DESPESA' | 'EMPRESTIMO' | 'DEVOLUCAO_EMPRESTIMO'>('ENTRADA');
   const [movAmount, setMovAmount] = useState('');
   const [movDesc, setMovDesc] = useState('');
   const [informed, setInformed] = useState('');
@@ -38,7 +38,7 @@ export function CashPage() {
     <div>
       <PageHeader
         title="Caixa"
-        subtitle="Dinheiro físico do dia (abrir/fechar, sangria, despesa). Vendas de material ficam em Vendas — ao finalizar, entram aqui como VENDA_RECEBIDA se o caixa estiver aberto."
+        subtitle="Dinheiro físico do dia (abrir/fechar, sangria, despesa). Em Vendas, só entra no caixa se o recebedor for Caixa (como trocado)."
       />
 
       {error && (
@@ -108,7 +108,10 @@ export function CashPage() {
                 <option value="SANGRIA">Sangria</option>
                 <option value="SUPRIMENTO">Suprimento</option>
                 <option value="VENDA_RECEBIDA">Venda recebida</option>
+                <option value="TROCADO">Trocado</option>
                 <option value="DESPESA">Despesa</option>
+                <option value="EMPRESTIMO">Peguei emprestado</option>
+                <option value="DEVOLUCAO_EMPRESTIMO">Devolução</option>
               </select>
               <input
                 className="rounded border px-3 py-2"

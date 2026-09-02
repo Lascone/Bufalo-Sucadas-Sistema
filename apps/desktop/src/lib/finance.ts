@@ -10,6 +10,8 @@ export type FinanceDayTotals = {
   entradas: number;
   saidas: number;
   comprasPagas: number;
+  emprestimos: number;
+  devolucoesEmprestimo: number;
 };
 
 export type FinanceDayRecord = {
@@ -42,19 +44,26 @@ function sumBy(
   type: CashMovement['movementType'],
 ): number {
   return Math.round(
-    movements.filter((m) => m.movementType === type).reduce((a, m) => a + m.amount, 0) * 100,
+    movements
+      .filter((m) => m.movementType === type && !m.voidedAt)
+      .reduce((a, m) => a + m.amount, 0) * 100,
   ) / 100;
 }
 
 export function calcDayTotals(movements: CashMovement[]): FinanceDayTotals {
   return {
-    vendasRecebidas: sumBy(movements, 'VENDA_RECEBIDA'),
+    vendasRecebidas:
+      Math.round(
+        (sumBy(movements, 'VENDA_RECEBIDA') + sumBy(movements, 'TROCADO')) * 100,
+      ) / 100,
     despesas: sumBy(movements, 'DESPESA'),
     sangrias: sumBy(movements, 'SANGRIA'),
     suprimentos: sumBy(movements, 'SUPRIMENTO'),
     entradas: sumBy(movements, 'ENTRADA'),
     saidas: sumBy(movements, 'SAIDA'),
     comprasPagas: sumBy(movements, 'COMPRA_PAGA'),
+    emprestimos: sumBy(movements, 'EMPRESTIMO'),
+    devolucoesEmprestimo: sumBy(movements, 'DEVOLUCAO_EMPRESTIMO'),
   };
 }
 
@@ -67,9 +76,36 @@ function businessDateFromIso(iso: string): string {
 }
 
 export function listFinanceDays(includeDeleted = false): FinanceDayRecord[] {
-  return loadJson<FinanceDayRecord[]>(KEY, [])
+  const raw = loadJson<FinanceDayRecord[] | null>(KEY, []);
+  const list = Array.isArray(raw) ? raw : [];
+  return list
+    .filter((d): d is FinanceDayRecord => !!d && typeof d === 'object' && !!d.id)
     .filter((d) => includeDeleted || !d.deletedAt)
-    .sort((a, b) => b.closedAt.localeCompare(a.closedAt));
+    .map((d) => ({
+      ...d,
+      closedAt:
+        typeof d.closedAt === 'string' && d.closedAt
+          ? d.closedAt
+          : d.openedAt || '1970-01-01T00:00:00.000Z',
+      openedAt:
+        typeof d.openedAt === 'string' && d.openedAt
+          ? d.openedAt
+          : '1970-01-01T00:00:00.000Z',
+      businessDate: String(d.businessDate ?? '').slice(0, 10) || '1970-01-01',
+      movements: Array.isArray(d.movements) ? d.movements : [],
+      totals: d.totals ?? {
+        vendasRecebidas: 0,
+        despesas: 0,
+        sangrias: 0,
+        suprimentos: 0,
+        entradas: 0,
+        saidas: 0,
+        comprasPagas: 0,
+        emprestimos: 0,
+        devolucoesEmprestimo: 0,
+      },
+    }))
+    .sort((a, b) => (b.closedAt || '').localeCompare(a.closedAt || ''));
 }
 
 export function getFinanceDay(id: string): FinanceDayRecord | undefined {
@@ -201,4 +237,150 @@ export async function syncFinanceFromClosedCash(
     }
   }
   return n;
+}
+
+export type FinanceDayTimelineItem =
+  | {
+      kind: 'cut';
+      label: string;
+      at: string;
+    }
+  | {
+      kind: 'movement';
+      movement: CashMovement;
+      sessionId: string;
+    };
+
+export type FinanceDayGroup = {
+  businessDate: string;
+  sessions: FinanceDayRecord[];
+  openedAt: string;
+  closedAt: string;
+  openedBy: string;
+  openingBalance: number;
+  expectedBalance: number;
+  informedBalance: number;
+  difference: number;
+  notes: string;
+  totals: FinanceDayTotals;
+  timeline: FinanceDayTimelineItem[];
+  /** Flat movements (no cuts) for purchase matching etc. */
+  movements: CashMovement[];
+};
+
+function fmtTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+/** Agrupa vários fechamentos do mesmo dia civil em um único relatório. */
+export function groupFinanceDaysByBusinessDate(
+  days: FinanceDayRecord[],
+): FinanceDayGroup[] {
+  const map = new Map<string, FinanceDayRecord[]>();
+  for (const d of days) {
+    if (d.deletedAt) continue;
+    const list = map.get(d.businessDate) ?? [];
+    list.push(d);
+    map.set(d.businessDate, list);
+  }
+
+  const groups: FinanceDayGroup[] = [];
+  for (const [businessDate, sessionsRaw] of map) {
+    const sessions = [...sessionsRaw].sort((a, b) =>
+      a.openedAt.localeCompare(b.openedAt),
+    );
+    const first = sessions[0]!;
+    const last = sessions[sessions.length - 1]!;
+    const movements: CashMovement[] = [];
+    const timeline: FinanceDayTimelineItem[] = [];
+
+    sessions.forEach((s, idx) => {
+      if (idx > 0) {
+        timeline.push({
+          kind: 'cut',
+          at: s.openedAt,
+          label: `Caixa reaberto ${fmtTime(s.openedAt)}`,
+        });
+      }
+      for (const m of s.movements) {
+        movements.push(m);
+        timeline.push({ kind: 'movement', movement: m, sessionId: s.id });
+      }
+      timeline.push({
+        kind: 'cut',
+        at: s.closedAt,
+        label: `Caixa fechado ${fmtTime(s.closedAt)}`,
+      });
+    });
+    const totals = calcDayTotals(movements);
+
+    const openingBalance = first.openingBalance;
+    // Esperado do dia = inicial do 1º + efeito líquido de todos os movimentos (ignora anulados)
+    const expectedBalance =
+      Math.round(
+        (openingBalance +
+          movements.reduce((acc, m) => {
+            if (m.voidedAt) return acc;
+            const t = m.movementType;
+            const inTypes = [
+              'ENTRADA',
+              'SUPRIMENTO',
+              'VENDA_RECEBIDA',
+              'TROCADO',
+              'EMPRESTIMO',
+            ];
+            const outTypes = [
+              'SAIDA',
+              'SANGRIA',
+              'DESPESA',
+              'COMPRA_PAGA',
+              'DEVOLUCAO_EMPRESTIMO',
+            ];
+            if (inTypes.includes(t)) return acc + m.amount;
+            if (outTypes.includes(t)) return acc - m.amount;
+            return acc;
+          }, 0)) *
+          100,
+      ) / 100;
+    const informedBalance = last.informedBalance;
+    const notes = sessions
+      .map((s) => s.notes?.trim())
+      .filter(Boolean)
+      .join(' · ');
+
+    groups.push({
+      businessDate,
+      sessions,
+      openedAt: first.openedAt,
+      closedAt: last.closedAt,
+      openedBy: [...new Set(sessions.map((s) => s.openedBy).filter(Boolean))].join(
+        ', ',
+      ),
+      openingBalance,
+      expectedBalance,
+      informedBalance,
+      difference: Math.round((informedBalance - expectedBalance) * 100) / 100,
+      notes,
+      totals,
+      timeline,
+      movements,
+    });
+  }
+
+  return groups.sort((a, b) => b.businessDate.localeCompare(a.businessDate));
+}
+
+export function getFinanceDayGroup(
+  businessDate: string,
+): FinanceDayGroup | undefined {
+  return groupFinanceDaysByBusinessDate(listFinanceDays()).find(
+    (g) => g.businessDate === businessDate,
+  );
 }

@@ -3,6 +3,15 @@ import react from '@vitejs/plugin-react';
 import electron from 'vite-plugin-electron/simple';
 import path from 'node:path';
 
+const electronExternals = [
+  'electron',
+  'electron-updater',
+  'builder-util-runtime',
+  '@ferrogestor/database',
+  'pg',
+  /^node:/,
+];
+
 export default defineConfig({
   // Relative asset paths so packaged Electron (file://) loads the UI
   base: './',
@@ -19,7 +28,7 @@ export default defineConfig({
               formats: ['cjs'],
             },
             rollupOptions: {
-              external: ['electron', 'electron-updater'],
+              external: electronExternals,
               output: {
                 entryFileNames: 'main.js',
                 format: 'cjs',

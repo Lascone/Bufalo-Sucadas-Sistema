@@ -59,6 +59,11 @@ export class SyncController {
     return this.sync.status(user.companyId);
   }
 
+  @Get('conflicts')
+  async listConflicts(@CurrentUser() user: JwtPayload) {
+    return this.sync.listConflicts(user.companyId);
+  }
+
   @Post('conflicts/:id/resolve')
   async resolve(
     @CurrentUser() user: JwtPayload,

@@ -1,6 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { SyncOperation } from '@ferrogestor/shared';
 import { getDataDir } from './local-db';
+import { getConfiguredDatabaseUrl } from './central-connection';
+import { getCentralPrisma, getSyncCore } from './central-db';
+import {
+  connectCentral,
+  getSyncAuthStatus,
+  getSyncSessionIds,
+  readSyncAuth,
+} from './sync-auth';
 
 export type LocalSyncOp = {
   originOperationId: string;
@@ -18,6 +27,16 @@ export type LocalSyncOp = {
   lastError?: string;
 };
 
+export type PullOperation = {
+  originOperationId: string;
+  entityType: string;
+  entityId: string;
+  action: string;
+  payload: Record<string, unknown>;
+  version: number;
+  occurredAt: string;
+};
+
 type SyncStoreFile = {
   pending: LocalSyncOp[];
   lastSyncAt: string | null;
@@ -31,6 +50,7 @@ type SyncStoreFile = {
     errors: number;
     success: boolean;
   }>;
+  lastPullOperations?: PullOperation[];
 };
 
 function storePath(): string {
@@ -61,54 +81,120 @@ export function getSyncSnapshot() {
     online: store.online,
     lastSyncAt: store.lastSyncAt,
     lastError: store.lastError,
-    pendingCount: store.pending.filter((o) => o.status === 'PENDING' || o.status === 'ERROR').length,
+    pendingCount: store.pending.filter(
+      (o) => o.status === 'PENDING' || o.status === 'ERROR' || o.status === 'SYNCING',
+    ).length,
     errorCount: store.pending.filter((o) => o.status === 'ERROR').length,
     conflictCount: store.pending.filter((o) => o.status === 'CONFLICT').length,
-    history: store.history.slice(0, 20),
-    pending: store.pending.slice(0, 50),
+    history: store.history,
+    pending: store.pending,
+    lastPullOperations: store.lastPullOperations ?? [],
   };
 }
 
-export function enqueueSyncOp(op: LocalSyncOp) {
+export function enqueueSyncOp(op: Omit<LocalSyncOp, 'status'> & { status?: LocalSyncOp['status'] }) {
   const store = readStore();
-  store.pending.push({ ...op, status: op.status ?? 'PENDING' });
+  const ids = getSyncSessionIds();
+  const patched: LocalSyncOp = {
+    ...op,
+    status: op.status ?? 'PENDING',
+    companyId: ids.companyId ?? op.companyId,
+    branchId: ids.branchId ?? op.branchId,
+    deviceId: ids.deviceId || op.deviceId,
+    userId: ids.userId ?? op.userId,
+  };
+  store.pending.push(patched);
   writeStore(store);
   return { ok: true, pendingCount: store.pending.length };
 }
 
-export async function runSyncCycle() {
+export async function runSyncCycle(opts?: {
+  preferLocal?: boolean;
+  pushOnly?: boolean;
+  batchSize?: number;
+}) {
   const store = readStore();
-  const apiBase = process.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api/v1';
+  const preferLocal = opts?.preferLocal !== false;
+  const pushOnly = opts?.pushOnly === true;
+  const batchSize = Math.min(Math.max(opts?.batchSize ?? 40, 5), 100);
 
-  let online = false;
-  try {
-    const health = await fetch(`${apiBase}/health`);
-    online = health.ok;
-  } catch {
-    online = false;
-  }
-  store.online = online;
-
-  if (!online) {
-    store.lastError = 'Servidor indisponível';
+  if (!getConfiguredDatabaseUrl()) {
+    store.online = false;
+    store.lastError = 'PostgreSQL não configurado — trabalhando offline';
+    store.lastPullOperations = [];
     writeStore(store);
     return getSyncSnapshot();
   }
 
-  const token = process.env.FERROGESTOR_ACCESS_TOKEN;
-  if (!token) {
-    store.lastError = 'Sem token de sessão — faça login para sincronizar';
+  let online = false;
+  let healthDetail: string | undefined;
+  try {
+    const db = await getCentralPrisma();
+    if (db) {
+      await db.$queryRaw`SELECT 1`;
+      online = true;
+    }
+  } catch (e) {
+    online = false;
+    healthDetail = e instanceof Error ? e.message : String(e);
+  }
+  store.online = online;
+
+  if (!online) {
+    store.lastError =
+      healthDetail?.includes('Authentication failed')
+        ? 'PostgreSQL recusou login — confira usuário/senha em Configurações → Banco online'
+        : healthDetail ?? 'Servidor indisponível — trabalhando offline';
+    store.lastPullOperations = [];
     writeStore(store);
-    return {
-      ...getSyncSnapshot(),
-      skipped: true,
-      reason: 'no-token',
-    };
+    return getSyncSnapshot();
+  }
+
+  let auth = getSyncAuthStatus();
+  if (!auth.configured) {
+    const connected = await connectCentral({ deviceName: readSyncAuth().deviceName });
+    if (!connected.ok) {
+      store.lastError = connected.error;
+      store.lastPullOperations = [];
+      writeStore(store);
+      return { ...getSyncSnapshot(), skipped: true, reason: 'no-session' };
+    }
+    auth = connected.status;
+  }
+
+  const ids = getSyncSessionIds();
+  const companyId = ids.companyId;
+  const userId = ids.userId;
+  const deviceId = ids.deviceId || auth.deviceId;
+  if (!companyId || !userId || !deviceId) {
+    store.lastError = 'Sessão central incompleta — reconecte em Configurações → Banco online';
+    store.lastPullOperations = [];
+    writeStore(store);
+    return { ...getSyncSnapshot(), skipped: true, reason: 'no-session' };
+  }
+
+  const core = await getSyncCore();
+  if (!core) {
+    store.lastError = 'Não foi possível abrir o núcleo de sincronização';
+    store.lastPullOperations = [];
+    writeStore(store);
+    return getSyncSnapshot();
+  }
+
+  // Local-first: conflitos anteriores voltam pra fila com versão maior
+  if (preferLocal) {
+    for (const op of store.pending) {
+      if (op.status === 'CONFLICT') {
+        op.status = 'PENDING';
+        op.version = Math.max(1, Number(op.version) || 1) + 1;
+        op.lastError = undefined;
+      }
+    }
   }
 
   const batch = store.pending
     .filter((o) => o.status === 'PENDING' || o.status === 'ERROR')
-    .slice(0, 100);
+    .slice(0, batchSize);
 
   let pushed = 0;
   let conflicts = 0;
@@ -117,29 +203,19 @@ export async function runSyncCycle() {
   if (batch.length > 0) {
     batch.forEach((o) => {
       o.status = 'SYNCING';
+      o.companyId = companyId;
+      o.userId = userId;
+      o.deviceId = deviceId;
     });
     writeStore(store);
 
     try {
-      const res = await fetch(`${apiBase}/sync/push`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          deviceId: batch[0]?.deviceId,
-          operations: batch.map(({ status: _s, lastError: _e, ...op }) => op),
-        }),
-      });
-      const body = (await res.json()) as {
-        accepted?: string[];
-        conflicts?: Array<{ originOperationId: string }>;
-        errors?: Array<{ originOperationId: string; message: string }>;
-      };
-
+      const operations = batch.map(({ status: _s, lastError: _e, ...op }) => op) as SyncOperation[];
+      const body = await core.push(companyId, deviceId, userId, operations);
       const accepted = new Set(body.accepted ?? []);
-      const conflictIds = new Set((body.conflicts ?? []).map((c) => c.originOperationId));
+      const conflictIds = new Set(
+        (body.conflicts ?? []).map((c) => c.originOperationId),
+      );
       const errorMap = new Map(
         (body.errors ?? []).map((e) => [e.originOperationId, e.message]),
       );
@@ -149,8 +225,14 @@ export async function runSyncCycle() {
           op.status = 'SYNCED';
           pushed += 1;
         } else if (conflictIds.has(op.originOperationId)) {
-          op.status = 'CONFLICT';
-          conflicts += 1;
+          if (preferLocal) {
+            op.status = 'PENDING';
+            op.version = Math.max(1, Number(op.version) || 1) + 1;
+            op.lastError = 'Conflito — reenviando com prioridade local';
+          } else {
+            op.status = 'CONFLICT';
+            conflicts += 1;
+          }
         } else if (errorMap.has(op.originOperationId)) {
           op.status = 'ERROR';
           op.lastError = errorMap.get(op.originOperationId);
@@ -167,36 +249,168 @@ export async function runSyncCycle() {
   }
 
   let pulled = 0;
-  try {
-    const since = store.lastSyncAt ?? new Date(0).toISOString();
-    const deviceId = batch[0]?.deviceId ?? process.env.FERROGESTOR_DEVICE_ID ?? '';
-    if (deviceId) {
-      const pullRes = await fetch(
-        `${apiBase}/sync/pull?since=${encodeURIComponent(since)}&deviceId=${deviceId}`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (pullRes.ok) {
-        const pullBody = (await pullRes.json()) as { operations?: unknown[] };
-        pulled = pullBody.operations?.length ?? 0;
+  let pullFailed = false;
+  let pullError: string | null = null;
+  const pullOperations: PullOperation[] = [];
+  if (!pushOnly) {
+    try {
+      let since = store.lastSyncAt ?? new Date(0).toISOString();
+      let guard = 0;
+      while (guard < 50) {
+        guard += 1;
+        const page = await core.pull(companyId, deviceId, new Date(since), 200);
+        for (const op of page.operations) {
+          pullOperations.push({
+            originOperationId: op.originOperationId,
+            entityType: op.entityType,
+            entityId: op.entityId,
+            action: op.action,
+            payload: op.payload,
+            version: op.version,
+            occurredAt: op.occurredAt,
+          });
+        }
+        pulled += page.operations.length;
+        if (!page.hasMore || !page.nextSince) break;
+        since = page.nextSince;
       }
+    } catch (e) {
+      pullFailed = true;
+      pullError = e instanceof Error ? e.message : String(e);
     }
-  } catch {
-    // pull opcional no ciclo; erros registrados abaixo
   }
 
-  store.lastSyncAt = new Date().toISOString();
-  store.lastError = errors > 0 ? 'Há operações com erro' : null;
+  store.lastPullOperations = pullOperations;
+  // Só avança o cursor se o pull ok (evita “pular” dados do outro PC)
+  if (!pullFailed) {
+    store.lastSyncAt = new Date().toISOString();
+  }
+  store.lastError =
+    errors > 0
+      ? 'Há operações com erro — a fila continua tentando'
+      : pullFailed
+        ? `Push ok; pull falhou: ${pullError}`
+        : null;
   store.history.unshift({
-    at: store.lastSyncAt,
+    at: new Date().toISOString(),
     pushed,
     pulled,
     conflicts,
     errors,
-    success: errors === 0,
+    success: errors === 0 && !pullFailed,
   });
   store.history = store.history.slice(0, 50);
   store.pending = store.pending.filter((o) => o.status !== 'SYNCED');
   writeStore(store);
 
   return getSyncSnapshot();
+}
+
+/** Importa entidades de outro device (mesma empresa) para aplicar localmente. */
+export async function importFromDevice(deviceId: string): Promise<
+  | { ok: true; operations: PullOperation[]; count: number }
+  | { ok: false; error: string }
+> {
+  try {
+    const db = await getCentralPrisma();
+    const auth = readSyncAuth();
+    if (!db || !auth.companyId) {
+      return { ok: false, error: 'PostgreSQL não configurado ou sem empresa.' };
+    }
+    if (!deviceId.trim()) {
+      return { ok: false, error: 'Informe o dispositivo de origem.' };
+    }
+    const rows = await db.$queryRawUnsafe<
+      Array<{
+        id: string;
+        entityType: string;
+        payload: unknown;
+        version: number;
+        createdAt: Date;
+        updatedAt: Date;
+      }>
+    >(
+      `SELECT "id","entityType","payload","version","createdAt","updatedAt"
+       FROM "sync_entities"
+       WHERE "companyId" = $1 AND "deviceId" = $2 AND "deletedAt" IS NULL
+       ORDER BY "updatedAt" ASC
+       LIMIT 2000`,
+      auth.companyId,
+      deviceId,
+    );
+
+    const operations: PullOperation[] = rows
+      .filter((r) => {
+        const t = r.entityType;
+        return (
+          t === 'Purchase' ||
+          t === 'Sale' ||
+          t === 'Material' ||
+          t === 'Contact' ||
+          t === 'FinanceDay' ||
+          t === 'CashLoan' ||
+          t === 'PatioMovement' ||
+          t === 'CashRegister' ||
+          t === 'CashRegisterMovement' ||
+          t === 'SaleComment'
+        );
+      })
+      .map((r) => {
+      const payload =
+        r.payload && typeof r.payload === 'object'
+          ? (r.payload as Record<string, unknown>)
+          : {};
+      return {
+        originOperationId: `import-${deviceId}-${r.id}`,
+        entityType: r.entityType,
+        entityId: String(payload.id ?? r.id),
+        action: 'UPDATE',
+        payload: { ...payload, id: payload.id ?? r.id, version: r.version },
+        version: r.version,
+        occurredAt: new Date(r.updatedAt).toISOString(),
+      };
+    });
+
+    return { ok: true, operations, count: operations.length };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function listSyncConflicts() {
+  const ids = getSyncSessionIds();
+  if (!ids.companyId) return [];
+  const core = await getSyncCore();
+  if (!core) return [];
+  return core.listConflicts(ids.companyId);
+}
+
+export async function resolveSyncConflict(input: {
+  conflictId: string;
+  resolution: 'KEEP_LOCAL' | 'KEEP_SERVER' | 'MERGE';
+  justification: string;
+  mergedPayload?: Record<string, unknown>;
+}) {
+  const ids = getSyncSessionIds();
+  if (!ids.companyId || !ids.userId) {
+    return { ok: false as const, error: 'Sessão central incompleta' };
+  }
+  const core = await getSyncCore();
+  if (!core) return { ok: false as const, error: 'Banco indisponível' };
+  try {
+    await core.resolveConflict(
+      input.conflictId,
+      ids.companyId,
+      ids.userId,
+      input.resolution,
+      input.justification,
+      input.mergedPayload,
+    );
+    return { ok: true as const };
+  } catch (e) {
+    return {
+      ok: false as const,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
 }

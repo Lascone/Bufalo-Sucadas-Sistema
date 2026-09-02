@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppShell } from './layout/AppShell';
+import { LoginScreen } from './pages/LoginScreen';
 import { DashboardPage } from './pages/DashboardPage';
 import { ContactsPage } from './pages/ContactsPage';
 import { MaterialsPage } from './pages/MaterialsPage';
@@ -10,8 +12,19 @@ import { FinancePage } from './pages/FinancePage';
 import { SyncCenterPage } from './pages/SyncCenterPage';
 import { ConflictsPage } from './pages/ConflictsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { OldDataPage } from './pages/OldDataPage';
+import { useAppStore } from './stores/app-store';
+import { startUiScaleWatcher } from './lib/ui-scale';
 
 export function App() {
+  const operatorId = useAppStore((s) => s.session.operatorId);
+
+  useEffect(() => startUiScaleWatcher(), []);
+
+  if (!operatorId) {
+    return <LoginScreen />;
+  }
+
   return (
     <Routes>
       <Route element={<AppShell />}>
@@ -28,6 +41,7 @@ export function App() {
         <Route path="financeiro" element={<FinancePage />} />
         <Route path="sincronizacao" element={<SyncCenterPage />} />
         <Route path="conflitos" element={<ConflictsPage />} />
+        <Route path="dados-antigos" element={<OldDataPage />} />
         <Route path="configuracoes" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

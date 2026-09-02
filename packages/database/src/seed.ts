@@ -1,7 +1,14 @@
 import argon2 from 'argon2';
 import { createCentralPrisma } from './central.js';
+import { ensureCentralDatabaseUrl } from './ensure-central-env.js';
 
+ensureCentralDatabaseUrl();
 const prisma = createCentralPrisma();
+
+const SEED_ADMIN_USER = process.env.SEED_ADMIN_USER ?? 'admin';
+const SEED_ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? 'admin';
+const SEED_API_BASE =
+  process.env.SEED_API_BASE ?? 'http://localhost:3000/api/v1';
 
 const PERMISSIONS = [
   { code: 'VIEW', name: 'Visualizar', module: 'general' },
@@ -161,16 +168,16 @@ async function main() {
     },
   });
 
-  const passwordHash = await argon2.hash('Admin@123');
+  const passwordHash = await argon2.hash(SEED_ADMIN_PASSWORD);
   await prisma.user.upsert({
     where: {
-      companyId_username: { companyId: company.id, username: 'admin' },
+      companyId_username: { companyId: company.id, username: SEED_ADMIN_USER },
     },
     update: { passwordHash, fullName: 'Administrador Bufalo', roleId: ownerRole.id },
     create: {
       companyId: company.id,
       branchId: branch.id,
-      username: 'admin',
+      username: SEED_ADMIN_USER,
       passwordHash,
       fullName: 'Administrador Bufalo',
       roleId: ownerRole.id,
@@ -234,7 +241,7 @@ async function main() {
     { key: 'cash.requireDifferenceReason', value: true, description: 'Exigir justificativa no fechamento' },
     { key: 'cash.allowMultipleOpen', value: false, description: 'Permitir múltiplos caixas abertos' },
     { key: 'sales.commentsEnabled', value: true, description: 'Comentários em vendas' },
-    { key: 'sync.apiBaseUrl', value: 'http://localhost:3000/api/v1', description: 'URL da API' },
+    { key: 'sync.apiBaseUrl', value: SEED_API_BASE, description: 'URL da API' },
     { key: 'sync.autoIntervalMinutes', value: 5, description: 'Intervalo de sync automático' },
   ];
 
@@ -255,7 +262,7 @@ async function main() {
   console.log('Seed concluído.');
   console.log(`Empresa: ${company.tradeName} (${company.id})`);
   console.log(`Filial: ${branch.name}`);
-  console.log('Usuário: admin / Admin@123');
+  console.log(`Usuário API: ${SEED_ADMIN_USER} / (SEED_ADMIN_PASSWORD ou "admin")`);
 }
 
 main()

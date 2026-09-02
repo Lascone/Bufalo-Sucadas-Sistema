@@ -5,9 +5,12 @@ export const MOVEMENT_LABELS: Record<CashMovement['movementType'], string> = {
   SAIDA: 'Saída',
   SANGRIA: 'Sangria',
   SUPRIMENTO: 'Suprimento',
-  COMPRA_PAGA: 'Compra',
+  COMPRA_PAGA: 'Material comprado',
   VENDA_RECEBIDA: 'Venda',
+  TROCADO: 'Trocado',
   DESPESA: 'Despesa',
+  EMPRESTIMO: 'Peguei emprestado',
+  DEVOLUCAO_EMPRESTIMO: 'Devolução',
 };
 
 /** Distinct colors: venda=verde, compra=laranja, despesa=vermelho, etc. */
@@ -18,6 +21,7 @@ export function movementTone(type: CashMovement['movementType']): {
 } {
   switch (type) {
     case 'VENDA_RECEBIDA':
+    case 'TROCADO':
       return {
         badge: 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/30',
         amount: 'text-emerald-300',
@@ -34,6 +38,18 @@ export function movementTone(type: CashMovement['movementType']): {
         badge: 'bg-red-500/20 text-red-300 ring-1 ring-red-500/30',
         amount: 'text-red-300',
         row: 'border-l-2 border-l-red-500/50',
+      };
+    case 'EMPRESTIMO':
+      return {
+        badge: 'bg-violet-500/20 text-violet-200 ring-1 ring-violet-500/35',
+        amount: 'text-violet-200',
+        row: 'border-l-2 border-l-violet-500/60',
+      };
+    case 'DEVOLUCAO_EMPRESTIMO':
+      return {
+        badge: 'bg-fuchsia-500/15 text-fuchsia-200 ring-1 ring-fuchsia-500/30',
+        amount: 'text-fuchsia-200',
+        row: 'border-l-2 border-l-fuchsia-500/50',
       };
     case 'SANGRIA':
     case 'SAIDA':
@@ -58,7 +74,13 @@ export function movementTone(type: CashMovement['movementType']): {
 }
 
 export function isCashIn(type: CashMovement['movementType']) {
-  return type === 'ENTRADA' || type === 'SUPRIMENTO' || type === 'VENDA_RECEBIDA';
+  return (
+    type === 'ENTRADA' ||
+    type === 'SUPRIMENTO' ||
+    type === 'VENDA_RECEBIDA' ||
+    type === 'TROCADO' ||
+    type === 'EMPRESTIMO'
+  );
 }
 
 export function movementLabel(type: CashMovement['movementType']) {

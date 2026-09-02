@@ -115,10 +115,11 @@ function bumpKey(
 }
 
 export function sumPurchases(rows: PurchaseRecord[]): PurchaseReportSummary {
+  const active = rows.filter((p) => !p.voidedAt);
   const byMat = new Map<string, MaterialBucket>();
   const byPay = new Map<string, { key: string; total: number; count: number }>();
   let total = 0;
-  for (const p of rows) {
+  for (const p of active) {
     total += p.amountPaid;
     bumpKey(byPay, p.paymentMethod || '—', p.amountPaid);
     if (p.items.length === 0) {
@@ -132,9 +133,9 @@ export function sumPurchases(rows: PurchaseRecord[]): PurchaseReportSummary {
   }
   total = Math.round(total * 100) / 100;
   return {
-    count: rows.length,
+    count: active.length,
     total,
-    average: rows.length ? Math.round((total / rows.length) * 100) / 100 : 0,
+    average: active.length ? Math.round((total / active.length) * 100) / 100 : 0,
     byMaterial: [...byMat.values()].sort((a, b) => b.total - a.total),
     byPayment: [...byPay.values()]
       .map((x) => ({ method: x.key, total: x.total, count: x.count }))
@@ -143,11 +144,12 @@ export function sumPurchases(rows: PurchaseRecord[]): PurchaseReportSummary {
 }
 
 export function sumSales(rows: SaleRecord[]): SalesReportSummary {
+  const active = rows.filter((s) => !s.voidedAt);
   const byMat = new Map<string, MaterialBucket>();
   const byPay = new Map<string, { key: string; total: number; count: number }>();
   const byRecv = new Map<string, { key: string; total: number; count: number }>();
   let total = 0;
-  for (const s of rows) {
+  for (const s of active) {
     const amount = s.amountReceived ?? s.netTotal;
     total += amount;
     bumpKey(byPay, s.paymentMethod || '—', amount);
@@ -166,9 +168,9 @@ export function sumSales(rows: SaleRecord[]): SalesReportSummary {
   }
   total = Math.round(total * 100) / 100;
   return {
-    count: rows.length,
+    count: active.length,
     total,
-    average: rows.length ? Math.round((total / rows.length) * 100) / 100 : 0,
+    average: active.length ? Math.round((total / active.length) * 100) / 100 : 0,
     byMaterial: [...byMat.values()].sort((a, b) => b.total - a.total),
     byPayment: [...byPay.values()]
       .map((x) => ({ method: x.key, total: x.total, count: x.count }))
@@ -202,4 +204,17 @@ export function describeFilter(filter: ReportFilterState): string {
   const from = filter.from.split('-').reverse().join('/');
   const to = filter.to.split('-').reverse().join('/');
   return `Período: ${from} → ${to}`;
+}
+
+/** Parte do nome de arquivo: 2026-07-21_ate_2026-07-28 */
+export function filterFileSlug(filter: ReportFilterState): string {
+  if (filter.mode === 'days') {
+    const sorted = [...filter.selectedDays].sort();
+    if (sorted.length === 0) return 'sem-periodo';
+    if (sorted.length === 1) return sorted[0]!;
+    return `${sorted[0]}_ate_${sorted[sorted.length - 1]}`;
+  }
+  if (!filter.from && !filter.to) return 'sem-periodo';
+  if (filter.from === filter.to) return filter.from || 'sem-periodo';
+  return `${filter.from || 'inicio'}_ate_${filter.to || 'fim'}`;
 }

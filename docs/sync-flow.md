@@ -2,22 +2,32 @@
 
 ## Camadas
 
-1. **Desktop:** armazenamento local + fila (`sync-queue`)
-2. **API NestJS:** recebe push/pull com JWT
-3. **MongoDB Atlas:** fonte central das operações sincronizadas (quando online)
+1. **Desktop (Electron):** localStorage + fila JSON (`sync-queue.json` no userData)
+2. **Sync core integrado:** o próprio app chama `createSyncCore` (Prisma) — sem API HTTP no PC da empresa
+3. **PostgreSQL 16:** fonte central (`sync_entities`, `sync_queue`, `sync_operation_receipts`, `sync_conflicts`, `sync_logs`)
 
-Sem internet o desktop continua normal; a fila fica `PENDING` até reconectar.
+Sem internet / sem banco configurado o desktop continua normal; a fila fica `PENDING` até conectar o PostgreSQL em **Configurações → Banco online**.
 
-## Endpoints
+A API NestJS (`apps/server`) continua disponível para uso opcional (dev/admin), mas **não é necessária** na instalação do Búfalo Sucata Gestor.
 
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| GET | `/api/v1/health` | SQLite local + MongoDB |
-| POST | `/api/v1/sync/push` | Lote idempotente → Mongo |
-| GET | `/api/v1/sync/pull` | Mudanças remotas do Mongo |
-| GET | `/api/v1/sync/status` | Pendências/conflitos |
-| POST | `/api/v1/sync/conflicts/:id/resolve` | Resolução manual |
+## Dois PCs
 
-Coleções Mongo: `sync_entities`, `sync_queue`, `sync_receipts`, `sync_conflicts`, `sync_logs`.
+```text
+PC A (offline) → grava local + enfileira
+PC B (offline) → grava local + enfileira
+PC A com Postgres → push direto → PostgreSQL
+PC B com Postgres → push + pull paginado → aplica no localStorage
+```
 
-Configure `MONGODB_URI` no `.env` (nunca no app desktop).
+IDs UUID evitam colisão de CREATE. UPDATE na mesma versão gera conflito (KEEP_LOCAL / KEEP_SERVER) via IPC na tela Conflitos.
+
+## Configuração no app
+
+1. Instalar e abrir (funciona offline).
+2. **Configurações → Banco online:** host, porta, database, usuário, senha e nome deste PC.
+3. **Testar e salvar** — o app registra o dispositivo e sincroniza.
+4. **Central de Sync → Sincronizar agora** quando quiser forçar.
+
+Pull baixa o histórico em páginas (até esgotar `hasMore`), então um PC novo recebe o histórico completo.
+
+Configure `DATABASE_URL` no `.env` só para seed/migrate no servidor (ver [postgres-setup.md](./postgres-setup.md)).

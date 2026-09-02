@@ -63,6 +63,7 @@ Deve ter pelo menos:
 - `BufaloSucataGestor-Setup-X.Y.Z.exe`
 - `BufaloSucataGestor-Setup-X.Y.Z.exe.blockmap`
 - `latest.yml`
+- `stable.yml` (cópia do latest — compat com builds antigos que usavam channel `stable`)
 
 9. Commit/push do bump de versão **só se o usuário pedir** (o publish no GitHub Releases já sobe o instalador; tag costuma ser criada pelo electron-builder).
 10. Responder com o **link da release** e o que fazer **na Sucata**.
@@ -121,6 +122,6 @@ Depois disso, updates seguintes podem vir pelo botão do app.
 - [ ] Código ok / testado no que dá
 - [ ] Versão bumped
 - [ ] `release-desktop.ps1` rodou OK
-- [ ] Release tem `.exe` + `latest.yml`
+- [ ] Release tem `.exe` + `latest.yml` (+ `stable.yml` no script de release)
 - [ ] Link passado pro usuário
 - [ ] Sucata: app instalado → Verificar atualizações

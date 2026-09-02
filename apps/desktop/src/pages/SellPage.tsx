@@ -15,9 +15,12 @@ import {
   addSaleComment,
   createSale,
   listSales,
+  SALE_RECEIVER_CAIXA,
+  isSaleReceiverCaixa,
   type SalePaymentMethod,
   type SaleRecord,
 } from '../lib/sales';
+import { getMaterialBalance } from '../lib/patio';
 import { downloadSalePdf, shareSalePdfWhatsApp } from '../lib/pdf';
 import { getSettings, listActivePartners } from '../lib/settings';
 import { useAppStore } from '../stores/app-store';
@@ -28,7 +31,9 @@ type SellTab = 'nova' | 'historico';
 export function SellPage() {
   const username = useAppStore((s) => s.session.username);
   const commentsEnabled = getSettings()['sales.commentsEnabled'];
-  const partners = listActivePartners();
+  const partners = listActivePartners().filter(
+    (p) => !isSaleReceiverCaixa(p),
+  );
   const materials = listMaterials(true);
   const { menu, open, close } = useContextMenu();
 
@@ -36,9 +41,10 @@ export function SellPage() {
   const [sales, setSales] = useState<SaleRecord[]>(() => listSales());
   const [customerName, setCustomerName] = useState('');
   const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
+  const [weightsById, setWeightsById] = useState<Record<string, string>>({});
   const [paymentMethod, setPaymentMethod] = useState<SalePaymentMethod>('PIX');
   const [receiverPick, setReceiverPick] = useState(() =>
-    partners[0] ? partners[0] : '__other__',
+    partners[0] ? partners[0] : SALE_RECEIVER_CAIXA,
   );
   const [receiverOther, setReceiverOther] = useState('');
   const [amount, setAmount] = useState('');
@@ -51,9 +57,17 @@ export function SellPage() {
   const selected = sales.find((s) => s.id === selectedId) ?? null;
 
   const toggleMaterial = (id: string) => {
-    setSelectedMaterialIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
+    setSelectedMaterialIds((prev) => {
+      if (prev.includes(id)) {
+        setWeightsById((w) => {
+          const next = { ...w };
+          delete next[id];
+          return next;
+        });
+        return prev.filter((x) => x !== id);
+      }
+      return [...prev, id];
+    });
   };
 
   const resolveReceiver = () => {
@@ -68,11 +82,17 @@ export function SellPage() {
     const mats = selectedMaterialIds
       .map((id) => getMaterial(id))
       .filter(Boolean)
-      .map((m) => ({
-        materialId: m!.id,
-        materialName: m!.name,
-        buyPriceRef: m!.buyPrice,
-      }));
+      .map((m) => {
+        const raw = Number((weightsById[m!.id] ?? '').replace(',', '.'));
+        const weight =
+          Number.isFinite(raw) && raw > 0 ? Math.round(raw * 1000) / 1000 : 0;
+        return {
+          materialId: m!.id,
+          materialName: m!.name,
+          buyPriceRef: m!.buyPrice,
+          weight: weight > 0 ? weight : undefined,
+        };
+      });
 
     if (!mats.length) {
       setError('Escolha ao menos um material (pode marcar vários).');
@@ -94,18 +114,28 @@ export function SellPage() {
       notes,
       openedBy: username,
     })
-      .then(({ sale, cashInfo }) => {
+      .then(({ sale, cashInfo, stockWarnings }) => {
         setCustomerName('');
         setSelectedMaterialIds([]);
+        setWeightsById({});
         setAmount('');
         setNotes('');
         setSelectedId(sale.id);
         setSales(listSales());
         setTab('historico');
-        const matsLabel = sale.items.map((i) => i.materialName).join(', ');
+        const matsLabel = sale.items
+          .map((i) =>
+            i.weight > 0
+              ? `${i.materialName} (${i.weight} kg)`
+              : i.materialName,
+          )
+          .join(', ');
+        const warn =
+          stockWarnings.length > 0 ? ` ${stockWarnings.join(' ')}` : '';
         setInfo(
-          cashInfo ??
-            `Vendeu ${matsLabel} · ${sale.customerName} · R$ ${sale.amountReceived.toFixed(2)} · ${sale.paymentMethod === 'PIX' ? 'PIX' : 'Dinheiro'} · ${sale.receivedBy}. Já no relatório de vendas.`,
+          (cashInfo ??
+            `Vendeu ${matsLabel} · ${sale.customerName} · R$ ${sale.amountReceived.toFixed(2)} · ${sale.paymentMethod === 'PIX' ? 'PIX' : 'Dinheiro'} · ${sale.receivedBy}${sale.cashPosted ? '' : ' (não entrou no caixa — ficou com o recebedor)'}. Já no relatório de vendas.`) +
+            warn,
         );
       })
       .catch((e: Error) => setError(e.message));
@@ -185,15 +215,24 @@ export function SellPage() {
                       <button
                         type="button"
                         className="text-xs text-ink-400 hover:text-ink-200"
-                        onClick={() => setSelectedMaterialIds([])}
+                        onClick={() => {
+                          setSelectedMaterialIds([]);
+                          setWeightsById({});
+                        }}
                       >
                         Limpar
                       </button>
                     )}
                   </div>
+                  <p className="mb-2 text-xs text-ink-400">
+                    Peso opcional: com kg, baixa o pátio. Só valor (ex.: Indefinido) —
+                    registra a venda sem inventar peso.
+                  </p>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                     {materials.map((m) => {
                       const on = selectedMaterialIds.includes(m.id);
+                      const bal = getMaterialBalance(m.id);
+                      const stockKg = bal?.weight ?? 0;
                       return (
                         <button
                           key={m.id}
@@ -206,8 +245,13 @@ export function SellPage() {
                           }`}
                         >
                           <MaterialThumb material={m} className="!h-8 !w-8" />
-                          <span className="min-w-0 flex-1 truncate text-sm text-ink-50">
-                            {m.name}
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm text-ink-50">
+                              {m.name}
+                            </span>
+                            <span className="block text-[10px] text-ink-400">
+                              Pátio: {stockKg.toFixed(1)} kg
+                            </span>
                           </span>
                           <span
                             className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs ${
@@ -222,6 +266,59 @@ export function SellPage() {
                       );
                     })}
                   </div>
+
+                  {selectedMaterialIds.length > 0 && (
+                    <div className="mt-3 space-y-2 rounded-xl border border-white/10 bg-ink-900/40 p-3">
+                      <p className="text-[10px] uppercase tracking-wide text-ink-400">
+                        Peso por material (opcional)
+                      </p>
+                      {selectedMaterialIds.map((id) => {
+                        const m = getMaterial(id);
+                        if (!m) return null;
+                        const bal = getMaterialBalance(id);
+                        const stockKg = bal?.weight ?? 0;
+                        const raw = Number(
+                          (weightsById[id] ?? '').replace(',', '.'),
+                        );
+                        const over =
+                          Number.isFinite(raw) &&
+                          raw > 0 &&
+                          raw > stockKg + 0.0005;
+                        return (
+                          <div
+                            key={id}
+                            className="grid gap-2 sm:grid-cols-[1fr_7rem]"
+                          >
+                            <div className="min-w-0">
+                              <div className="truncate text-sm text-ink-100">
+                                {m.name}
+                              </div>
+                              <div className="text-[10px] text-ink-400">
+                                Estoque {stockKg.toFixed(3)} kg
+                                {over && (
+                                  <span className="ml-1 text-amber-400">
+                                    — peso maior que o pátio (registra mesmo assim)
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <input
+                              className={fieldClass}
+                              inputMode="decimal"
+                              placeholder="kg"
+                              value={weightsById[id] ?? ''}
+                              onChange={(e) =>
+                                setWeightsById((w) => ({
+                                  ...w,
+                                  [id]: e.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <Field label="Valor recebido (R$)">
@@ -235,14 +332,17 @@ export function SellPage() {
                 </Field>
 
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <Field label="Forma">
+                  <Field label="Forma (como o cliente pagou)">
                     <div className="flex gap-2">
                       {(['PIX', 'DINHEIRO'] as const).map((m) => (
                         <button
                           key={m}
                           type="button"
                           onClick={() => setPaymentMethod(m)}
-                          className={`flex-1 rounded-lg border px-3 py-2 text-sm ${
+                          disabled={
+                            receiverPick === SALE_RECEIVER_CAIXA && m === 'PIX'
+                          }
+                          className={`flex-1 rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40 ${
                             paymentMethod === m
                               ? 'border-brand-500 bg-brand-500/20 text-brand-300'
                               : 'border-white/15 text-ink-300'
@@ -253,17 +353,26 @@ export function SellPage() {
                       ))}
                     </div>
                   </Field>
-                  <Field label="Recebedor">
+                  <Field label="Recebedor (quem ficou com o dinheiro)">
                     <select
                       className={fieldClass}
                       value={receiverPick}
-                      onChange={(e) => setReceiverPick(e.target.value)}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setReceiverPick(next);
+                        if (next === SALE_RECEIVER_CAIXA) {
+                          setPaymentMethod('DINHEIRO');
+                        }
+                      }}
                     >
                       {partners.map((p) => (
                         <option key={p} value={p}>
                           {p}
                         </option>
                       ))}
+                      <option value={SALE_RECEIVER_CAIXA}>
+                        Caixa (entra como trocado)
+                      </option>
                       <option value="__other__">Outro…</option>
                     </select>
                     {receiverPick === '__other__' && (
@@ -274,6 +383,11 @@ export function SellPage() {
                         placeholder="Ex.: Keity"
                       />
                     )}
+                    <p className="mt-1.5 text-[11px] text-ink-400">
+                      {receiverPick === SALE_RECEIVER_CAIXA
+                        ? 'Caixa = dinheiro físico no gaveteiro (movimento Trocado).'
+                        : 'Sócio = venda no relatório; não altera o saldo do caixa.'}
+                    </p>
                   </Field>
                 </div>
 
@@ -329,9 +443,15 @@ export function SellPage() {
                             id: 'wpp',
                             label: 'WhatsApp',
                             onSelect: () => {
-                              void shareSalePdfWhatsApp(s).then((r) =>
-                                setInfo(r.hint),
-                              );
+                              void shareSalePdfWhatsApp(s)
+                                .then((r) => setInfo(r.hint))
+                                .catch((e) =>
+                                  setError(
+                                    e instanceof Error
+                                      ? e.message
+                                      : 'Falha ao abrir WhatsApp',
+                                  ),
+                                );
                             },
                           },
                         ])
@@ -374,9 +494,15 @@ export function SellPage() {
                       </GhostButton>
                       <GhostButton
                         onClick={() =>
-                          void shareSalePdfWhatsApp(selected).then((r) =>
-                            setInfo(r.hint),
-                          )
+                          void shareSalePdfWhatsApp(selected)
+                            .then((r) => setInfo(r.hint))
+                            .catch((e) =>
+                              setError(
+                                e instanceof Error
+                                  ? e.message
+                                  : 'Falha ao abrir WhatsApp',
+                              ),
+                            )
                         }
                       >
                         WhatsApp

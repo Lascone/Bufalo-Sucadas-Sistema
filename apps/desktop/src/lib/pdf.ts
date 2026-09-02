@@ -5,6 +5,7 @@ import { getSettings } from './settings';
 import type { CashRegisterRecord } from './cash';
 import type { SaleRecord } from './sales';
 import { calcExpected } from './cash';
+import { movementLabel } from './movement-labels';
 
 const pdf = pdfMake as typeof pdfMake & {
   vfs: unknown;
@@ -20,31 +21,163 @@ const fontModule = pdfFonts as {
 };
 pdf.vfs = fontModule.pdfMake?.vfs ?? fontModule.default?.pdfMake?.vfs ?? {};
 
-function companyHeader() {
-  const s = getSettings();
-  return [
-    { text: s['company.displayName'], style: 'title' },
-    s['company.cnpj'] ? { text: `CNPJ: ${s['company.cnpj']}`, style: 'meta' } : null,
-    s['company.address'] ? { text: s['company.address'], style: 'meta' } : null,
-    s['company.phone'] ? { text: `Tel: ${s['company.phone']}`, style: 'meta' } : null,
-    { text: ' ', margin: [0, 8, 0, 8] },
-  ].filter(Boolean);
+type PdfContent = unknown;
+
+function money(n: number) {
+  return `R$ ${Number(n || 0).toFixed(2)}`;
 }
 
-function footer() {
-  return getSettings()['print.footerMessage'] || '';
+function dt(iso: string) {
+  try {
+    return new Date(iso).toLocaleString('pt-BR');
+  } catch {
+    return iso;
+  }
+}
+
+function pageSize() {
+  return getSettings()['print.paper'] || 'A4';
+}
+
+function footerMsg() {
+  return getSettings()['print.footerMessage'] || 'Obrigado — Bufalo Sucatas';
+}
+
+const PDF_COLORS = {
+  sale: '#15803d',
+  saleBg: '#dcfce7',
+  buy: '#b91c1c',
+  buyBg: '#fee2e2',
+  expense: '#991b1b',
+  supply: '#0369a1',
+  supplyBg: '#e0f2fe',
+  muted: '#6b7280',
+  cut: '#92400e',
+  cutBg: '#fef3c7',
+};
+
+function reportFileName(prefix: string, slug?: string) {
+  const safe = (slug || '').replace(/[^\w\-]+/g, '_').replace(/^_|_$/g, '');
+  return safe ? `${prefix}-${safe}.pdf` : `${prefix}.pdf`;
 }
 
 const styles = {
-  title: { fontSize: 18, bold: true, color: '#2a4a30' },
-  heading: {
-    fontSize: 14,
+  brand: { fontSize: 16, bold: true, color: '#1b4332' },
+  docTitle: {
+    fontSize: 15,
     bold: true,
-    margin: [0, 10, 0, 6] as [number, number, number, number],
+    color: '#1b4332',
+    margin: [0, 4, 0, 2] as [number, number, number, number],
   },
-  meta: { fontSize: 10, color: '#3a4650' },
-  tableHeader: { bold: true, fillColor: '#e4ebe3' },
+  section: {
+    fontSize: 11,
+    bold: true,
+    color: '#1b4332',
+    margin: [0, 14, 0, 6] as [number, number, number, number],
+  },
+  meta: { fontSize: 9, color: '#5c6b73' },
+  body: { fontSize: 10, color: '#1a1a1a' },
+  tableHeader: {
+    bold: true,
+    fillColor: '#e8f0e9',
+    color: '#1b4332',
+    fontSize: 9,
+  },
+  highlight: {
+    fontSize: 11,
+    bold: true,
+    color: '#1b4332',
+  },
+  muted: { fontSize: 9, color: '#6b7280', italics: true },
 };
+
+function th(text: string) {
+  return { text, style: 'tableHeader' };
+}
+
+function kv(rows: Array<[string, string]>): PdfContent {
+  return {
+    table: {
+      widths: [120, '*'],
+      body: rows.map(([k, v]) => [
+        { text: k, style: 'meta', bold: true },
+        { text: v || '—', style: 'body' },
+      ]),
+    },
+    layout: {
+      hLineWidth: () => 0.4,
+      vLineWidth: () => 0,
+      hLineColor: () => '#e5e7eb',
+      paddingLeft: () => 0,
+      paddingRight: () => 4,
+      paddingTop: () => 3,
+      paddingBottom: () => 3,
+    },
+    margin: [0, 2, 0, 4] as [number, number, number, number],
+  };
+}
+
+function companyHeader(docTitle: string): PdfContent[] {
+  const s = getSettings();
+  const lines = [
+    s['company.cnpj'] ? `CNPJ ${s['company.cnpj']}` : '',
+    s['company.address'] || '',
+    s['company.phone'] ? `Tel. ${s['company.phone']}` : '',
+  ].filter(Boolean);
+
+  return [
+    {
+      columns: [
+        {
+          width: '*',
+          stack: [
+            { text: s['company.displayName'] || 'Bufalo Sucatas', style: 'brand' },
+            ...(lines.length
+              ? [{ text: lines.join(' · '), style: 'meta', margin: [0, 2, 0, 0] }]
+              : []),
+          ],
+        },
+        {
+          width: 'auto',
+          stack: [
+            { text: docTitle, style: 'docTitle', alignment: 'right' },
+            {
+              text: `Emitido em ${new Date().toLocaleString('pt-BR')}`,
+              style: 'meta',
+              alignment: 'right',
+            },
+          ],
+        },
+      ],
+    },
+    {
+      canvas: [
+        {
+          type: 'line',
+          x1: 0,
+          y1: 0,
+          x2: 515,
+          y2: 0,
+          lineWidth: 1.2,
+          lineColor: '#2d6a4f',
+        },
+      ],
+      margin: [0, 8, 0, 10] as [number, number, number, number],
+    },
+  ];
+}
+
+function docFooter(): PdfContent {
+  return {
+    text: footerMsg(),
+    style: 'muted',
+    margin: [0, 22, 0, 0] as [number, number, number, number],
+  };
+}
+
+function emptyTableNote(msg: string): PdfContent {
+  return { text: msg, style: 'muted', margin: [0, 4, 0, 0] };
+}
 
 export type WhatsAppShareResult = {
   ok: true;
@@ -70,10 +203,23 @@ async function sharePdfDoc(
 ): Promise<WhatsAppShareResult> {
   const base64 = await pdfBase64(doc);
   if (window.ferrogestor?.sharePdfWhatsApp) {
-    return window.ferrogestor.sharePdfWhatsApp({ fileName, base64, caption });
+    try {
+      return await window.ferrogestor.sharePdfWhatsApp({
+        fileName,
+        base64,
+        caption,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(`Falha ao abrir WhatsApp: ${msg}`);
+    }
   }
   pdf.createPdf(doc).download(fileName);
-  window.open('https://web.whatsapp.com/', '_blank', 'noopener,noreferrer');
+  const text = caption?.trim() ? encodeURIComponent(caption.trim()) : '';
+  const url = text
+    ? `https://web.whatsapp.com/send?text=${text}`
+    : 'https://web.whatsapp.com/';
+  window.open(url, '_blank', 'noopener,noreferrer');
   return {
     ok: true,
     fullPath: fileName,
@@ -82,71 +228,156 @@ async function sharePdfDoc(
   };
 }
 
+function movTypeLabel(type: string) {
+  try {
+    return movementLabel(type as Parameters<typeof movementLabel>[0]);
+  } catch {
+    return type;
+  }
+}
+
+/* ─── Venda (comprovante) ─────────────────────────────────────────── */
+
 function buildSaleDoc(sale: SaleRecord) {
   const items = sale.items ?? [];
   const amountReceived = sale.amountReceived ?? sale.netTotal;
   const methodLabel = sale.paymentMethod === 'PIX' ? 'PIX' : 'Dinheiro';
-  const materialNames = items.map((i) => i.materialName).join(', ') || '—';
   const lotSale = sale.lotSale ?? items.every((i) => !i.weight);
-  return {
-    pageSize: getSettings()['print.paper'] || 'A4',
-    content: [
-      ...companyHeader(),
-      { text: 'Comprovante de Venda', style: 'heading' },
-      { text: `Nº ${sale.documentNumber}` },
-      { text: `Data: ${new Date(sale.soldAt).toLocaleString('pt-BR')}` },
-      { text: `Empresa: ${sale.customerName || '—'}` },
-      { text: `Material: ${materialNames}` },
-      { text: `Forma: ${methodLabel}` },
-      { text: `Recebido por: ${sale.receivedBy || '—'}` },
-      !lotSale && items.length
-        ? {
-            table: {
-              widths: ['*', 'auto', 'auto', 'auto'],
-              body: [
-                [
-                  { text: 'Material', style: 'tableHeader' },
-                  { text: 'Peso (kg)', style: 'tableHeader' },
-                  { text: 'R$/kg', style: 'tableHeader' },
-                  { text: 'Total', style: 'tableHeader' },
-                ],
-                ...items.map((i) => [
-                  i.materialName,
-                  String(i.weight),
-                  i.unitPrice.toFixed(2),
-                  `R$ ${i.lineTotal.toFixed(2)}`,
-                ]),
-              ],
+  const gross = sale.grossTotal ?? amountReceived + (sale.discountAmount || 0);
+
+  const content: PdfContent[] = [
+    ...companyHeader('Comprovante de venda'),
+    { text: 'Dados da venda', style: 'section' },
+    kv([
+      ['Documento', sale.documentNumber],
+      ['Data / hora', dt(sale.soldAt)],
+      ['Cliente / empresa', sale.customerName || '—'],
+      ['Forma de pagamento', methodLabel],
+      ['Recebido por', sale.receivedBy || '—'],
+      ['Tipo', lotSale ? 'Venda por lote (valor negociado)' : 'Venda com peso'],
+    ]),
+    { text: 'Materiais', style: 'section' },
+  ];
+
+  if (!items.length) {
+    content.push(emptyTableNote('Nenhum material listado.'));
+  } else if (lotSale) {
+    content.push({
+      table: {
+        widths: ['*', 'auto'],
+        headerRows: 1,
+        body: [
+          [th('Material incluído no lote'), th('Ref. custo médio*')],
+          ...items.map((i) => [
+            { text: i.materialName, style: 'body' },
+            {
+              text:
+                (i.avgCostAtSale ?? i.buyPriceRef ?? 0) > 0
+                  ? `${money(i.avgCostAtSale ?? i.buyPriceRef ?? 0)}/kg`
+                  : '—',
+              style: 'body',
+              alignment: 'right',
             },
-            margin: [0, 10, 0, 8] as [number, number, number, number],
-          }
-        : null,
-      sale.discountAmount > 0
-        ? {
-            text: `Desconto: R$ ${sale.discountAmount.toFixed(2)}${
-              sale.discountReason ? ` (${sale.discountReason})` : ''
-            }`,
-          }
-        : null,
-      {
-        text: `Valor recebido: R$ ${amountReceived.toFixed(2)}`,
-        margin: [0, 8, 0, 8] as [number, number, number, number],
+          ]),
+        ],
       },
-      sale.notes ? { text: `Observações: ${sale.notes}` } : null,
-      (sale.comments?.length ?? 0) ? { text: 'Comentários', style: 'heading' } : null,
-      ...(sale.comments ?? []).map((c) => ({
-        text: `${new Date(c.createdAt).toLocaleString('pt-BR')} — ${c.authorName}: ${c.body}`,
-        style: 'meta',
-        margin: [0, 2, 0, 2] as [number, number, number, number],
-      })),
-      {
-        text: footer(),
-        style: 'meta',
-        margin: [0, 24, 0, 0] as [number, number, number, number],
+      layout: 'lightHorizontalLines',
+    });
+    content.push({
+      text: '* Referência do estoque na data; nesta venda o valor foi negociado no total.',
+      style: 'muted',
+      margin: [0, 4, 0, 0],
+    });
+  } else {
+    content.push({
+      table: {
+        widths: ['*', 'auto', 'auto', 'auto', 'auto'],
+        headerRows: 1,
+        body: [
+          [
+            th('Material'),
+            th('Peso (kg)'),
+            th('R$/kg'),
+            th('Subtotal'),
+            th('Lucro est.'),
+          ],
+          ...items.map((i) => [
+            { text: i.materialName, style: 'body' },
+            { text: Number(i.weight).toFixed(3), style: 'body', alignment: 'right' },
+            {
+              text: Number(i.unitPrice).toFixed(2),
+              style: 'body',
+              alignment: 'right',
+            },
+            {
+              text: money(i.lineTotal),
+              style: 'body',
+              alignment: 'right',
+            },
+            {
+              text: money(i.grossProfit ?? 0),
+              style: 'body',
+              alignment: 'right',
+            },
+          ]),
+        ],
       },
-    ].filter(Boolean),
-    styles,
-  };
+      layout: 'lightHorizontalLines',
+    });
+  }
+
+  content.push({ text: 'Valores', style: 'section' });
+  const valueRows: Array<[string, string]> = [
+    ['Valor bruto', money(gross)],
+  ];
+  if ((sale.discountAmount ?? 0) > 0) {
+    valueRows.push([
+      'Desconto',
+      `${money(sale.discountAmount)}${
+        sale.discountReason ? ` (${sale.discountReason})` : ''
+      }`,
+    ]);
+  }
+  valueRows.push(
+    ['Valor líquido', money(sale.netTotal)],
+    ['Valor recebido', money(amountReceived)],
+  );
+  if (!lotSale && (sale.grossProfit ?? 0) !== 0) {
+    valueRows.push(['Lucro estimado (itens)', money(sale.grossProfit)]);
+  }
+  content.push(kv(valueRows));
+  content.push({
+    text: `Total confirmado: ${money(amountReceived)} · ${methodLabel}`,
+    style: 'highlight',
+    margin: [0, 8, 0, 0],
+  });
+
+  if (sale.notes?.trim()) {
+    content.push({ text: 'Observações', style: 'section' });
+    content.push({ text: sale.notes, style: 'body' });
+  }
+
+  if (sale.comments?.length) {
+    content.push({ text: 'Comentários', style: 'section' });
+    for (const c of sale.comments) {
+      content.push({
+        text: `${dt(c.createdAt)} — ${c.authorName}: ${c.body}`,
+        style: 'meta',
+        margin: [0, 2, 0, 2],
+      });
+    }
+  }
+
+  if (sale.stockWarnings?.length) {
+    content.push({ text: 'Avisos de estoque', style: 'section' });
+    for (const w of sale.stockWarnings) {
+      content.push({ text: `• ${w}`, style: 'muted' });
+    }
+  }
+
+  content.push(docFooter());
+
+  return { pageSize: pageSize(), content, styles, defaultStyle: { fontSize: 10 } };
 }
 
 export function downloadSalePdf(sale: SaleRecord) {
@@ -159,53 +390,70 @@ export function shareSalePdfWhatsApp(sale: SaleRecord) {
   return sharePdfDoc(
     buildSaleDoc(sale),
     `venda-${sale.documentNumber}.pdf`,
-    `Venda ${sale.documentNumber} — R$ ${(sale.amountReceived ?? sale.netTotal).toFixed(2)}`,
+    `Venda ${sale.documentNumber} — ${money(sale.amountReceived ?? sale.netTotal)}`,
   );
 }
 
+/* ─── Fechamento de caixa ─────────────────────────────────────────── */
+
 function buildCashCloseDoc(cash: CashRegisterRecord) {
   const expected = cash.expectedBalance ?? calcExpected(cash);
-  return {
-    pageSize: getSettings()['print.paper'] || 'A4',
-    content: [
-      ...companyHeader(),
-      { text: 'Fechamento de Caixa', style: 'heading' },
-      { text: `Aberto em: ${new Date(cash.openedAt).toLocaleString('pt-BR')}` },
-      {
-        text: `Fechado em: ${cash.closedAt ? new Date(cash.closedAt).toLocaleString('pt-BR') : '—'}`,
+  const content: PdfContent[] = [
+    ...companyHeader('Fechamento de caixa'),
+    { text: 'Resumo do dia', style: 'section' },
+    kv([
+      ['Aberto em', dt(cash.openedAt)],
+      ['Fechado em', cash.closedAt ? dt(cash.closedAt) : '—'],
+      ['Operador', cash.openedBy || '—'],
+      ['Saldo inicial', money(cash.openingBalance)],
+      ['Saldo esperado', money(expected)],
+      ['Saldo contado', money(cash.informedBalance ?? 0)],
+      ['Diferença', money(cash.difference ?? 0)],
+    ]),
+  ];
+
+  if (cash.differenceReason) {
+    content.push({
+      text: `Justificativa da diferença: ${cash.differenceReason}`,
+      style: 'body',
+      margin: [0, 4, 0, 0],
+    });
+  }
+  if (cash.notes) {
+    content.push({
+      text: `Observações da abertura / caixa: ${cash.notes}`,
+      style: 'body',
+      margin: [0, 2, 0, 0],
+    });
+  }
+
+  content.push({ text: 'Movimentos', style: 'section' });
+  if (!cash.movements.length) {
+    content.push(emptyTableNote('Nenhum movimento neste caixa.'));
+  } else {
+    content.push({
+      table: {
+        widths: ['auto', 'auto', 'auto', '*'],
+        headerRows: 1,
+        body: [
+          [th('Quando'), th('Tipo'), th('Valor'), th('Descrição')],
+          ...cash.movements.map((m) => [
+            { text: dt(m.movedAt), style: 'meta' },
+            { text: movTypeLabel(m.movementType), style: 'body' },
+            { text: money(m.amount), style: 'body', alignment: 'right' },
+            {
+              text: [m.description, m.detail].filter(Boolean).join(' · '),
+              style: 'body',
+            },
+          ]),
+        ],
       },
-      { text: `Operador: ${cash.openedBy}` },
-      { text: `Saldo inicial: R$ ${cash.openingBalance.toFixed(2)}` },
-      { text: `Saldo esperado: R$ ${expected.toFixed(2)}` },
-      { text: `Saldo informado: R$ ${(cash.informedBalance ?? 0).toFixed(2)}` },
-      { text: `Diferença: R$ ${(cash.difference ?? 0).toFixed(2)}` },
-      cash.differenceReason
-        ? { text: `Justificativa: ${cash.differenceReason}` }
-        : null,
-      { text: 'Movimentos', style: 'heading' },
-      {
-        table: {
-          widths: ['*', '*', 'auto', '*'],
-          body: [
-            [
-              { text: 'Data', style: 'tableHeader' },
-              { text: 'Tipo', style: 'tableHeader' },
-              { text: 'Valor', style: 'tableHeader' },
-              { text: 'Descrição', style: 'tableHeader' },
-            ],
-            ...cash.movements.map((m) => [
-              new Date(m.movedAt).toLocaleString('pt-BR'),
-              m.movementType,
-              `R$ ${m.amount.toFixed(2)}`,
-              m.description,
-            ]),
-          ],
-        },
-      },
-      { text: footer(), style: 'meta', margin: [0, 24, 0, 0] },
-    ].filter(Boolean),
-    styles,
-  };
+      layout: 'lightHorizontalLines',
+    });
+  }
+
+  content.push(docFooter());
+  return { pageSize: pageSize(), content, styles, defaultStyle: { fontSize: 10 } };
 }
 
 export function downloadCashClosePdf(cash: CashRegisterRecord) {
@@ -218,9 +466,11 @@ export function shareCashClosePdfWhatsApp(cash: CashRegisterRecord) {
   return sharePdfDoc(
     buildCashCloseDoc(cash),
     `caixa-${cash.id.slice(0, 8)}.pdf`,
-    'Fechamento de caixa',
+    'Fechamento de caixa — Bufalo Sucatas',
   );
 }
+
+/* ─── Financeiro do dia ───────────────────────────────────────────── */
 
 type FinanceDayPdfInput = {
   businessDate: string;
@@ -233,6 +483,7 @@ type FinanceDayPdfInput = {
   difference: number;
   differenceReason: string;
   notes: string;
+  sessionCount?: number;
   totals: {
     vendasRecebidas: number;
     despesas: number;
@@ -241,76 +492,149 @@ type FinanceDayPdfInput = {
     entradas: number;
     saidas: number;
     comprasPagas: number;
+    emprestimos?: number;
+    devolucoesEmprestimo?: number;
   };
   movements: Array<{
     movedAt: string;
     movementType: string;
     amount: number;
     description: string;
+    detail?: string;
+    isCut?: boolean;
   }>;
 };
 
 function buildFinanceDayDoc(day: FinanceDayPdfInput) {
-  return {
-    pageSize: getSettings()['print.paper'] || 'A4',
-    content: [
-      ...companyHeader(),
-      { text: 'Resumo Financeiro do Dia', style: 'heading' },
-      { text: `Data: ${day.businessDate}` },
-      {
-        text: `Aberto: ${new Date(day.openedAt).toLocaleString('pt-BR')} — Fechado: ${new Date(day.closedAt).toLocaleString('pt-BR')}`,
-      },
-      { text: `Operador: ${day.openedBy}` },
-      { text: 'Totais', style: 'heading' },
-      {
-        table: {
-          widths: ['*', 'auto'],
-          body: [
-            [
-              { text: 'Saldo inicial', style: 'tableHeader' },
-              `R$ ${day.openingBalance.toFixed(2)}`,
-            ],
-            ['Vendas (entrou)', `R$ ${day.totals.vendasRecebidas.toFixed(2)}`],
-            ['Despesas', `R$ ${day.totals.despesas.toFixed(2)}`],
-            ['Sangrias', `R$ ${day.totals.sangrias.toFixed(2)}`],
-            ['Suprimentos', `R$ ${day.totals.suprimentos.toFixed(2)}`],
-            ['Entradas', `R$ ${day.totals.entradas.toFixed(2)}`],
-            ['Saídas', `R$ ${day.totals.saidas.toFixed(2)}`],
-            ['Compras (saiu)', `R$ ${day.totals.comprasPagas.toFixed(2)}`],
-            ['Saldo esperado', `R$ ${day.expectedBalance.toFixed(2)}`],
-            ['Saldo informado', `R$ ${day.informedBalance.toFixed(2)}`],
-            ['Diferença', `R$ ${day.difference.toFixed(2)}`],
+  const content: PdfContent[] = [
+    ...companyHeader('Resumo financeiro do dia'),
+    { text: 'Período', style: 'section' },
+    kv([
+      ['Data do negócio', day.businessDate],
+      ['Aberto', dt(day.openedAt)],
+      ['Fechado', dt(day.closedAt)],
+      ['Operador', day.openedBy || '—'],
+      ...(day.sessionCount && day.sessionCount > 1
+        ? [['Sessões no dia', String(day.sessionCount)] as [string, string]]
+        : []),
+    ]),
+    { text: 'Totais', style: 'section' },
+    {
+      table: {
+        widths: ['*', 'auto'],
+        headerRows: 1,
+        body: [
+          [th('Rubrica'), th('Valor')],
+          ['Saldo inicial', money(day.openingBalance)],
+          ['Vendas recebidas', money(day.totals.vendasRecebidas)],
+          ['Material comprado', money(day.totals.comprasPagas)],
+          ['Peguei emprestado', money(day.totals.emprestimos ?? 0)],
+          ['Devolução de empréstimo', money(day.totals.devolucoesEmprestimo ?? 0)],
+          ['Despesas', money(day.totals.despesas)],
+          ['Sangrias', money(day.totals.sangrias)],
+          ['Suprimentos', money(day.totals.suprimentos)],
+          ['Outras entradas', money(day.totals.entradas)],
+          ['Outras saídas', money(day.totals.saidas)],
+          [
+            { text: 'Saldo esperado', bold: true },
+            { text: money(day.expectedBalance), bold: true, alignment: 'right' },
           ],
-        },
-      },
-      day.differenceReason
-        ? { text: `Justificativa: ${day.differenceReason}`, margin: [0, 8, 0, 0] }
-        : null,
-      day.notes ? { text: `Observações: ${day.notes}` } : null,
-      { text: 'Movimentos', style: 'heading' },
-      {
-        table: {
-          widths: ['*', '*', 'auto', '*'],
-          body: [
-            [
-              { text: 'Data/hora', style: 'tableHeader' },
-              { text: 'Tipo', style: 'tableHeader' },
-              { text: 'Valor', style: 'tableHeader' },
-              { text: 'Descrição', style: 'tableHeader' },
-            ],
-            ...day.movements.map((m) => [
-              new Date(m.movedAt).toLocaleString('pt-BR'),
-              m.movementType,
-              `R$ ${m.amount.toFixed(2)}`,
-              m.description,
-            ]),
+          ['Saldo informado', money(day.informedBalance)],
+          [
+            { text: 'Diferença', bold: true },
+            { text: money(day.difference), bold: true, alignment: 'right' },
           ],
-        },
+        ].map((row, i) =>
+          i === 0
+            ? row
+            : [
+                typeof row[0] === 'string'
+                  ? { text: row[0], style: 'body' }
+                  : row[0],
+                typeof row[1] === 'string'
+                  ? { text: row[1], style: 'body', alignment: 'right' }
+                  : row[1],
+              ],
+        ),
       },
-      { text: footer(), style: 'meta', margin: [0, 24, 0, 0] },
-    ].filter(Boolean),
-    styles,
-  };
+      layout: 'lightHorizontalLines',
+    },
+  ];
+
+  if (day.differenceReason) {
+    content.push({
+      text: `Justificativa: ${day.differenceReason}`,
+      style: 'body',
+      margin: [0, 8, 0, 0],
+    });
+  }
+  if (day.notes) {
+    content.push({
+      text: `Observações: ${day.notes}`,
+      style: 'body',
+      margin: [0, 2, 0, 0],
+    });
+  }
+
+  content.push({ text: 'Movimentos do dia', style: 'section' });
+  if (!day.movements.length) {
+    content.push(emptyTableNote('Sem movimentos.'));
+  } else {
+    content.push({
+      table: {
+        widths: ['auto', 'auto', 'auto', '*'],
+        headerRows: 1,
+        body: [
+          [th('Quando'), th('Tipo'), th('Valor'), th('Descrição')],
+          ...day.movements.map((m) =>
+            m.isCut
+              ? [
+                  {
+                    text: m.description,
+                    colSpan: 4,
+                    alignment: 'center',
+                    bold: true,
+                    color: PDF_COLORS.cut,
+                    fillColor: PDF_COLORS.cutBg,
+                    fontSize: 9,
+                    margin: [0, 4, 0, 4],
+                  },
+                  {},
+                  {},
+                  {},
+                ]
+              : [
+                  { text: dt(m.movedAt), style: 'meta' },
+                  {
+                    text: movTypeLabel(m.movementType),
+                    style: 'body',
+                    color:
+                      m.movementType === 'DESPESA' ||
+                      m.movementType === 'COMPRA_PAGA'
+                        ? PDF_COLORS.buy
+                        : m.movementType === 'VENDA_RECEBIDA' ||
+                            m.movementType === 'TROCADO'
+                          ? PDF_COLORS.sale
+                          : m.movementType === 'SUPRIMENTO' ||
+                              m.movementType === 'ENTRADA'
+                            ? PDF_COLORS.supply
+                            : undefined,
+                  },
+                  { text: money(m.amount), style: 'body', alignment: 'right' },
+                  {
+                    text: [m.description, m.detail].filter(Boolean).join(' · '),
+                    style: 'body',
+                  },
+                ],
+          ),
+        ],
+      },
+      layout: 'lightHorizontalLines',
+    });
+  }
+
+  content.push(docFooter());
+  return { pageSize: pageSize(), content, styles, defaultStyle: { fontSize: 10 } };
 }
 
 export function downloadFinanceDayPdf(day: FinanceDayPdfInput) {
@@ -323,7 +647,7 @@ export function shareFinanceDayPdfWhatsApp(day: FinanceDayPdfInput) {
   return sharePdfDoc(
     buildFinanceDayDoc(day),
     `financeiro-${day.businessDate}.pdf`,
-    `Financeiro ${day.businessDate}`,
+    `Financeiro ${day.businessDate} — Bufalo Sucatas`,
   );
 }
 
@@ -351,7 +675,7 @@ export function exportFinanceDayCsv(day: {
     'data_hora;tipo;valor;descricao',
     ...day.movements.map(
       (m) =>
-        `${new Date(m.movedAt).toLocaleString('pt-BR')};${m.movementType};${m.amount.toFixed(2)};"${m.description.replace(/"/g, '""')}"`,
+        `${dt(m.movedAt)};${movTypeLabel(m.movementType)};${m.amount.toFixed(2)};"${m.description.replace(/"/g, '""')}"`,
     ),
   ];
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
@@ -373,9 +697,12 @@ function downloadBlob(filename: string, content: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
+/* ─── Relatórios ──────────────────────────────────────────────────── */
+
 type PurchasesReportInput = {
   title: string;
   filterLabel: string;
+  fileSlug?: string;
   total: number;
   count: number;
   rows: Array<{
@@ -385,59 +712,90 @@ type PurchasesReportInput = {
     materials: string;
     amount: number;
     payment: string;
+    source?: string;
   }>;
 };
 
 function buildPurchasesReportDoc(input: PurchasesReportInput) {
-  return {
-    pageSize: getSettings()['print.paper'] || 'A4',
-    content: [
-      ...companyHeader(),
-      { text: input.title, style: 'heading' },
-      { text: input.filterLabel, style: 'meta' },
-      {
-        text: `Lançamentos: ${input.count} · Total: R$ ${input.total.toFixed(2)}`,
-        margin: [0, 8, 0, 8] as [number, number, number, number],
-      },
-      {
-        table: {
-          widths: ['auto', 'auto', '*', 'auto', 'auto'],
-          body: [
-            [
-              { text: 'Quando', style: 'tableHeader' },
-              { text: 'Doc', style: 'tableHeader' },
-              { text: 'Pessoa / Materiais', style: 'tableHeader' },
-              { text: 'Pago', style: 'tableHeader' },
-              { text: 'Forma', style: 'tableHeader' },
-            ],
-            ...input.rows.map((r) => [
-              r.at,
-              r.documentNumber,
-              `${r.supplier}\n${r.materials}`,
-              `R$ ${r.amount.toFixed(2)}`,
-              r.payment,
-            ]),
+  const avg = input.count > 0 ? input.total / input.count : 0;
+  const content: PdfContent[] = [
+    ...companyHeader(input.title),
+    {
+      text: 'Saídas · compras e gastos',
+      color: PDF_COLORS.buy,
+      bold: true,
+      fontSize: 12,
+      margin: [0, 0, 0, 6],
+    },
+    kv([
+      ['Filtro', input.filterLabel],
+      ['Lançamentos', String(input.count)],
+      ['Total pago', money(input.total)],
+      ['Média', money(avg)],
+    ]),
+    { text: 'Detalhamento', style: 'section', color: PDF_COLORS.buy },
+  ];
+
+  if (!input.rows.length) {
+    content.push(emptyTableNote('Nenhuma compra/gasto no período.'));
+  } else {
+    content.push({
+      table: {
+        widths: ['auto', 'auto', '*', 'auto', 'auto'],
+        headerRows: 1,
+        body: [
+          [
+            th('Quando'),
+            th('Doc'),
+            th('Pessoa / materiais'),
+            th('Pago'),
+            th('Forma'),
           ],
-        },
+          ...input.rows.map((r) => [
+            { text: r.at, style: 'meta' },
+            {
+              text: r.documentNumber,
+              style: 'body',
+              color: r.source === 'caixa' ? PDF_COLORS.expense : PDF_COLORS.buy,
+            },
+            {
+              stack: [
+                { text: r.supplier, style: 'body', bold: true },
+                {
+                  text: r.materials,
+                  style: 'meta',
+                  color: r.source === 'caixa' ? PDF_COLORS.expense : undefined,
+                },
+              ],
+            },
+            {
+              text: money(r.amount),
+              style: 'body',
+              alignment: 'right',
+              color: PDF_COLORS.buy,
+            },
+            { text: r.payment, style: 'body' },
+          ]),
+        ],
       },
-      {
-        text: footer(),
-        style: 'meta',
-        margin: [0, 24, 0, 0] as [number, number, number, number],
-      },
-    ],
-    styles,
-  };
+      layout: 'lightHorizontalLines',
+    });
+  }
+
+  content.push(docFooter());
+  return { pageSize: pageSize(), content, styles, defaultStyle: { fontSize: 10 } };
 }
 
 export function downloadPurchasesReportPdf(input: PurchasesReportInput) {
-  pdf.createPdf(buildPurchasesReportDoc(input)).download(`relatorio-compras.pdf`);
+  pdf
+    .createPdf(buildPurchasesReportDoc(input))
+    .download(reportFileName('relatorio-compras', input.fileSlug));
 }
 
 export function sharePurchasesReportPdfWhatsApp(input: PurchasesReportInput) {
   return sharePdfDoc(
     buildPurchasesReportDoc(input),
-    'relatorio-compras.pdf',
+    reportFileName('relatorio-compras', input.fileSlug),
     `Relatório de compras · ${input.filterLabel}`,
   );
 }
@@ -445,6 +803,7 @@ export function sharePurchasesReportPdfWhatsApp(input: PurchasesReportInput) {
 type SalesReportInput = {
   title: string;
   filterLabel: string;
+  fileSlug?: string;
   total: number;
   count: number;
   rows: Array<{
@@ -455,117 +814,271 @@ type SalesReportInput = {
     amount: number;
     payment: string;
     receivedBy: string;
+    saleType?: string;
+    discount?: number;
+    source?: string;
   }>;
 };
 
 function buildSalesReportDoc(input: SalesReportInput) {
-  return {
-    pageSize: getSettings()['print.paper'] || 'A4',
-    content: [
-      ...companyHeader(),
-      { text: input.title, style: 'heading' },
-      { text: input.filterLabel, style: 'meta' },
-      {
-        text: `Lançamentos: ${input.count} · Total: R$ ${input.total.toFixed(2)}`,
-        margin: [0, 8, 0, 8] as [number, number, number, number],
-      },
-      {
-        table: {
-          widths: ['auto', 'auto', '*', 'auto', 'auto', 'auto'],
-          body: [
-            [
-              { text: 'Quando', style: 'tableHeader' },
-              { text: 'Doc', style: 'tableHeader' },
-              { text: 'Empresa / Materiais', style: 'tableHeader' },
-              { text: 'Valor', style: 'tableHeader' },
-              { text: 'Forma', style: 'tableHeader' },
-              { text: 'Recebedor', style: 'tableHeader' },
-            ],
-            ...input.rows.map((r) => [
-              r.at,
-              r.documentNumber,
-              `${r.customer}\n${r.materials}`,
-              `R$ ${r.amount.toFixed(2)}`,
-              r.payment,
-              r.receivedBy,
-            ]),
+  const avg = input.count > 0 ? input.total / input.count : 0;
+  const content: PdfContent[] = [
+    ...companyHeader(input.title),
+    {
+      text: 'Entradas · vendas e trocado',
+      color: PDF_COLORS.sale,
+      bold: true,
+      fontSize: 12,
+      margin: [0, 0, 0, 6],
+    },
+    kv([
+      ['Filtro', input.filterLabel],
+      ['Lançamentos', String(input.count)],
+      ['Total recebido', money(input.total)],
+      ['Média', money(avg)],
+    ]),
+    {
+      text: 'Detalhamento das vendas',
+      style: 'section',
+      color: PDF_COLORS.sale,
+    },
+  ];
+
+  if (!input.rows.length) {
+    content.push(emptyTableNote('Nenhuma venda no período.'));
+  } else {
+    content.push({
+      table: {
+        widths: ['auto', 'auto', '*', 'auto', 'auto', 'auto'],
+        headerRows: 1,
+        body: [
+          [
+            th('Quando'),
+            th('Doc'),
+            th('Empresa / materiais'),
+            th('Valor'),
+            th('Forma'),
+            th('Recebedor'),
           ],
-        },
+          ...input.rows.map((r) => [
+            { text: r.at, style: 'meta' },
+            { text: r.documentNumber, style: 'body' },
+            {
+              stack: [
+                { text: r.customer, style: 'body', bold: true },
+                {
+                  text: [
+                    r.saleType,
+                    r.materials,
+                    (r.discount ?? 0) > 0
+                      ? `desconto ${money(r.discount!)}`
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · '),
+                  style: 'meta',
+                },
+              ],
+            },
+            { text: money(r.amount), style: 'body', alignment: 'right' },
+            { text: r.payment, style: 'body' },
+            { text: r.receivedBy || '—', style: 'body' },
+          ]),
+        ],
       },
-      {
-        text: footer(),
-        style: 'meta',
-        margin: [0, 24, 0, 0] as [number, number, number, number],
-      },
-    ],
-    styles,
-  };
+      layout: 'lightHorizontalLines',
+    });
+  }
+
+  content.push(docFooter());
+  return { pageSize: pageSize(), content, styles, defaultStyle: { fontSize: 10 } };
 }
 
 export function downloadSalesReportPdf(input: SalesReportInput) {
-  pdf.createPdf(buildSalesReportDoc(input)).download(`relatorio-vendas.pdf`);
+  pdf
+    .createPdf(buildSalesReportDoc(input))
+    .download(reportFileName('relatorio-vendas', input.fileSlug));
 }
 
 export function shareSalesReportPdfWhatsApp(input: SalesReportInput) {
   return sharePdfDoc(
     buildSalesReportDoc(input),
-    'relatorio-vendas.pdf',
+    reportFileName('relatorio-vendas', input.fileSlug),
     `Relatório de vendas · ${input.filterLabel}`,
   );
 }
 
 type FinalReportInput = {
   filterLabel: string;
+  fileSlug?: string;
   purchasesTotal: number;
   salesTotal: number;
+  expensesTotal: number;
+  suppliesTotal: number;
   balance: number;
   purchaseCount: number;
   saleCount: number;
+  expenseCount: number;
+  purchaseRows?: PurchasesReportInput['rows'];
+  saleRows?: SalesReportInput['rows'];
 };
 
 function buildFinalReportDoc(input: FinalReportInput) {
-  return {
-    pageSize: getSettings()['print.paper'] || 'A4',
-    content: [
-      ...companyHeader(),
-      { text: 'Relatório final — Compras × Vendas', style: 'heading' },
-      { text: input.filterLabel, style: 'meta' },
-      {
-        table: {
-          widths: ['*', 'auto'],
-          body: [
-            [
-              { text: 'Item', style: 'tableHeader' },
-              { text: 'Valor', style: 'tableHeader' },
-            ],
-            [`Compras (${input.purchaseCount})`, `R$ ${input.purchasesTotal.toFixed(2)}`],
-            [`Vendas (${input.saleCount})`, `R$ ${input.salesTotal.toFixed(2)}`],
-            [
-              { text: 'Saldo operacional (vendas − compras)', bold: true },
-              `R$ ${input.balance.toFixed(2)}`,
-            ],
+  const content: PdfContent[] = [
+    ...companyHeader('Relatório final'),
+    kv([['Filtro', input.filterLabel]]),
+    { text: 'Resumo consolidado', style: 'section' },
+    {
+      table: {
+        widths: ['*', 'auto', 'auto'],
+        headerRows: 1,
+        body: [
+          [th('Indicador'), th('Qtd'), th('Valor')],
+          [
+            {
+              text: 'Compras + gastos (saídas)',
+              style: 'body',
+              color: PDF_COLORS.buy,
+            },
+            { text: String(input.purchaseCount), alignment: 'right' },
+            {
+              text: money(input.purchasesTotal),
+              alignment: 'right',
+              color: PDF_COLORS.buy,
+            },
           ],
-        },
-        margin: [0, 12, 0, 0] as [number, number, number, number],
+          [
+            {
+              text: 'Gastos avulsos (caixa)',
+              style: 'body',
+              color: PDF_COLORS.expense,
+            },
+            { text: String(input.expenseCount), alignment: 'right' },
+            {
+              text: money(input.expensesTotal),
+              alignment: 'right',
+              color: PDF_COLORS.expense,
+            },
+          ],
+          [
+            {
+              text: 'Vendas + trocado (entradas)',
+              style: 'body',
+              color: PDF_COLORS.sale,
+            },
+            { text: String(input.saleCount), alignment: 'right' },
+            {
+              text: money(input.salesTotal),
+              alignment: 'right',
+              color: PDF_COLORS.sale,
+            },
+          ],
+          [
+            {
+              text: 'Suprimentos / trocado colocado',
+              style: 'body',
+              color: PDF_COLORS.supply,
+            },
+            { text: '—', alignment: 'right' },
+            {
+              text: money(input.suppliesTotal),
+              alignment: 'right',
+              color: PDF_COLORS.supply,
+            },
+          ],
+          [
+            {
+              text: 'Saldo operacional (entradas − saídas)',
+              bold: true,
+              style: 'body',
+            },
+            { text: '—', alignment: 'right' },
+            {
+              text: money(input.balance),
+              bold: true,
+              alignment: 'right',
+            },
+          ],
+        ],
       },
-      {
-        text: footer(),
-        style: 'meta',
-        margin: [0, 24, 0, 0] as [number, number, number, number],
+      layout: 'lightHorizontalLines',
+    },
+  ];
+
+  if (input.saleRows?.length) {
+    content.push({
+      text: 'Vendas e entradas do caixa',
+      style: 'section',
+      color: PDF_COLORS.sale,
+    });
+    content.push({
+      table: {
+        widths: ['auto', '*', 'auto'],
+        headerRows: 1,
+        body: [
+          [th('Quando'), th('Descrição'), th('Valor')],
+          ...input.saleRows.map((r) => [
+            { text: r.at, style: 'meta' },
+            {
+              text: `${r.customer} · ${r.materials}`,
+              style: 'body',
+            },
+            {
+              text: money(r.amount),
+              alignment: 'right',
+              color: PDF_COLORS.sale,
+            },
+          ]),
+        ],
       },
-    ],
-    styles,
-  };
+      layout: 'lightHorizontalLines',
+    });
+  }
+
+  if (input.purchaseRows?.length) {
+    content.push({
+      text: 'Compras e gastos',
+      style: 'section',
+      color: PDF_COLORS.buy,
+    });
+    content.push({
+      table: {
+        widths: ['auto', '*', 'auto'],
+        headerRows: 1,
+        body: [
+          [th('Quando'), th('Descrição'), th('Valor')],
+          ...input.purchaseRows.map((r) => [
+            { text: r.at, style: 'meta' },
+            {
+              text: `${r.supplier} · ${r.materials}`,
+              style: 'body',
+            },
+            {
+              text: money(r.amount),
+              alignment: 'right',
+              color: PDF_COLORS.buy,
+            },
+          ]),
+        ],
+      },
+      layout: 'lightHorizontalLines',
+    });
+  }
+
+  content.push(docFooter());
+  return { pageSize: pageSize(), content, styles, defaultStyle: { fontSize: 10 } };
 }
 
 export function downloadFinalReportPdf(input: FinalReportInput) {
-  pdf.createPdf(buildFinalReportDoc(input)).download(`relatorio-final.pdf`);
+  pdf
+    .createPdf(buildFinalReportDoc(input))
+    .download(reportFileName('relatorio-final', input.fileSlug));
 }
 
 export function shareFinalReportPdfWhatsApp(input: FinalReportInput) {
   return sharePdfDoc(
     buildFinalReportDoc(input),
-    'relatorio-final.pdf',
+    reportFileName('relatorio-final', input.fileSlug),
     `Relatório final · ${input.filterLabel}`,
   );
 }
@@ -630,3 +1143,221 @@ export function exportFinalReportCsv(input: {
   ];
   downloadBlob('relatorio-final.csv', lines.join('\n'), 'text/csv;charset=utf-8;');
 }
+
+/* ─── Pátio ───────────────────────────────────────────────────────── */
+
+type PatioReportInput = {
+  filterLabel: string;
+  inKg: number;
+  outKg: number;
+  inValue: number;
+  outValue: number;
+  count: number;
+  byMaterial: Array<{
+    materialName: string;
+    inKg: number;
+    outKg: number;
+    netKg: number;
+  }>;
+  rows: Array<{
+    at: string;
+    kind: string;
+    material: string;
+    weight: number;
+    unitCost: number;
+    source: string;
+  }>;
+};
+
+function sourceLabel(source: string) {
+  if (source === 'PURCHASE') return 'Material comprado';
+  if (source === 'SALE') return 'Venda';
+  if (source === 'ADJUSTMENT') return 'Baixa / ajuste';
+  return source;
+}
+
+function buildPatioReportDoc(input: PatioReportInput) {
+  const content: PdfContent[] = [
+    ...companyHeader('Relatório do pátio'),
+    kv([
+      ['Filtro', input.filterLabel],
+      ['Movimentos', String(input.count)],
+      [
+        'Entradas',
+        `${input.inKg.toFixed(3)} kg · ${money(input.inValue)}`,
+      ],
+      [
+        'Saídas',
+        `${input.outKg.toFixed(3)} kg · ${money(input.outValue)}`,
+      ],
+      [
+        'Saldo do período',
+        `${(input.inKg - input.outKg).toFixed(3)} kg`,
+      ],
+    ]),
+    { text: 'Por material', style: 'section' },
+  ];
+
+  if (!input.byMaterial.length) {
+    content.push(emptyTableNote('Sem movimentação por material.'));
+  } else {
+    content.push({
+      table: {
+        widths: ['*', 'auto', 'auto', 'auto'],
+        headerRows: 1,
+        body: [
+          [th('Material'), th('Entrou kg'), th('Saiu kg'), th('Saldo kg')],
+          ...input.byMaterial.map((m) => [
+            { text: m.materialName, style: 'body' },
+            { text: m.inKg.toFixed(3), alignment: 'right' },
+            { text: m.outKg.toFixed(3), alignment: 'right' },
+            { text: m.netKg.toFixed(3), alignment: 'right', bold: true },
+          ]),
+        ],
+      },
+      layout: 'lightHorizontalLines',
+    });
+  }
+
+  content.push({ text: 'Movimentos', style: 'section' });
+  if (!input.rows.length) {
+    content.push(emptyTableNote('Nenhum movimento no filtro.'));
+  } else {
+    content.push({
+      table: {
+        widths: ['auto', 'auto', '*', 'auto', 'auto', 'auto'],
+        headerRows: 1,
+        body: [
+          [
+            th('Quando'),
+            th('Tipo'),
+            th('Material'),
+            th('Peso'),
+            th('R$/kg'),
+            th('Origem'),
+          ],
+          ...input.rows.map((r) => [
+            { text: r.at, style: 'meta' },
+            { text: r.kind, style: 'body' },
+            { text: r.material, style: 'body' },
+            {
+              text: `${r.weight.toFixed(3)} kg`,
+              style: 'body',
+              alignment: 'right',
+            },
+            {
+              text: r.unitCost.toFixed(2),
+              style: 'body',
+              alignment: 'right',
+            },
+            { text: sourceLabel(r.source), style: 'meta' },
+          ]),
+        ],
+      },
+      layout: 'lightHorizontalLines',
+    });
+  }
+
+  content.push(docFooter());
+  return { pageSize: pageSize(), content, styles, defaultStyle: { fontSize: 10 } };
+}
+
+export function downloadPatioReportPdf(input: PatioReportInput) {
+  pdf.createPdf(buildPatioReportDoc(input)).download('relatorio-patio.pdf');
+}
+
+export function sharePatioReportPdfWhatsApp(input: PatioReportInput) {
+  return sharePdfDoc(
+    buildPatioReportDoc(input),
+    'relatorio-patio.pdf',
+    `Relatório do pátio · ${input.filterLabel}`,
+  );
+}
+
+export function exportPatioReportCsv(input: PatioReportInput) {
+  const lines = [
+    'campo;valor',
+    `filtro;${input.filterLabel}`,
+    `movimentos;${input.count}`,
+    `entrada_kg;${input.inKg.toFixed(3)}`,
+    `saida_kg;${input.outKg.toFixed(3)}`,
+    `entrada_valor;${input.inValue.toFixed(2)}`,
+    `saida_valor;${input.outValue.toFixed(2)}`,
+    '',
+    'material;entrou_kg;saiu_kg;saldo_kg',
+    ...input.byMaterial.map(
+      (m) =>
+        `"${m.materialName.replace(/"/g, '""')}";${m.inKg.toFixed(3)};${m.outKg.toFixed(3)};${m.netKg.toFixed(3)}`,
+    ),
+    '',
+    'quando;tipo;material;peso_kg;custo_kg;origem',
+    ...input.rows.map(
+      (r) =>
+        `${r.at};${r.kind};"${r.material.replace(/"/g, '""')}";${r.weight.toFixed(3)};${r.unitCost.toFixed(2)};${sourceLabel(r.source)}`,
+    ),
+  ];
+  downloadBlob('relatorio-patio.csv', lines.join('\n'), 'text/csv;charset=utf-8;');
+}
+
+export type OldDataArchivePdfInput = {
+  title: string;
+  subtitle: string;
+  rows: Array<{
+    at: string;
+    entityType: string;
+    summary: string;
+    amount?: string;
+  }>;
+};
+
+function buildOldDataArchiveDoc(input: OldDataArchivePdfInput) {
+  const content: PdfContent[] = [
+    ...companyHeader('Dados antigos'),
+    { text: input.title, style: 'section', margin: [0, 0, 0, 4] },
+    { text: input.subtitle, style: 'muted', margin: [0, 0, 0, 12] },
+    input.rows.length
+      ? {
+          table: {
+            headerRows: 1,
+            widths: ['auto', 'auto', '*', 'auto'],
+            body: [
+              [th('Quando'), th('Tipo'), th('Resumo'), th('Valor')],
+              ...input.rows.map((r) => [
+                { text: r.at, style: 'body', fontSize: 8 },
+                { text: r.entityType, style: 'body', fontSize: 8 },
+                { text: r.summary, style: 'body', fontSize: 8 },
+                { text: r.amount ?? '—', style: 'body', fontSize: 8 },
+              ]),
+            ],
+          },
+          layout: 'lightHorizontalLines',
+        }
+      : emptyTableNote('Nenhum registro no período.'),
+    docFooter(),
+  ];
+  return {
+    pageSize: pageSize(),
+    content,
+    styles,
+    defaultStyle: { fontSize: 9 },
+  };
+}
+
+export function downloadOldDataArchivePdf(input: OldDataArchivePdfInput) {
+  const safe = input.title.replace(/[^\w\-]+/g, '_').slice(0, 40);
+  pdf
+    .createPdf(buildOldDataArchiveDoc(input))
+    .download(`dados-antigos-${safe || 'arquivo'}.pdf`);
+}
+
+export function exportOldDataArchiveCsv(input: OldDataArchivePdfInput) {
+  const lines = [
+    'quando;tipo;resumo;valor',
+    ...input.rows.map(
+      (r) =>
+        `${r.at};${r.entityType};"${r.summary.replace(/"/g, '""')}";${r.amount ?? ''}`,
+    ),
+  ];
+  downloadBlob('dados-antigos.csv', lines.join('\n'), 'text/csv;charset=utf-8;');
+}
+

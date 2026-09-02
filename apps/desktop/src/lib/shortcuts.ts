@@ -44,10 +44,25 @@ export function useShortcuts(shortcuts: ShortcutDef[], enabled = true) {
 }
 
 export const CASH_SHORTCUT_HELP = [
-  { keys: 'F2', desc: 'Aba Comprar' },
+  { keys: 'F2', desc: 'Aba Comprar Material' },
   { keys: 'F4', desc: 'Aba Gasto' },
+  { keys: 'F6', desc: 'Aba Peguei emprestado' },
+  {
+    keys: '0–9 / A–Z',
+    desc: 'Selecionar material pelo atalho cadastrado (fora dos campos)',
+  },
+  { keys: '↑ ↓', desc: 'Navegar nos itens da compra' },
+  {
+    keys: 'Enter',
+    desc: 'Fora do campo: foca o valor do item · no valor: confirma e libera atalhos',
+  },
+  { keys: 'F7', desc: 'Ir para Pago total' },
+  { keys: 'F10', desc: 'Abrir / ir para os itens da compra' },
+  { keys: 'Del', desc: 'Excluir o item selecionado nos itens' },
   { keys: 'F5 / Ctrl+Enter', desc: 'Finalizar formulário' },
-  { keys: 'F8', desc: 'Fechar caixa' },
+  { keys: 'F8', desc: 'Abrir fechamento do caixa' },
+  { keys: 'F9', desc: 'Adicionar trocado ao caixa aberto' },
+  { keys: 'F11', desc: 'Tela cheia (Esc sai)' },
   { keys: 'Ctrl+/', desc: 'Mostrar atalhos' },
-  { keys: 'Esc', desc: 'Fechar ajuda / cancelar' },
+  { keys: 'Esc', desc: 'Fechar ajuda / cancelar / sair da tela cheia' },
 ];

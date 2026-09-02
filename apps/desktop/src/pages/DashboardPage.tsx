@@ -80,7 +80,7 @@ export function DashboardPage() {
             )}
           </div>
           <img
-            src="/logo.png"
+            src="./logo.png"
             alt="Logo Búfalo Sucatas"
             className="mx-auto max-h-44 w-auto object-contain drop-shadow-xl"
           />

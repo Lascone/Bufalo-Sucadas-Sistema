@@ -1,35 +1,29 @@
-import { Global, Module, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Global, Module, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { createCentralPrisma, type CentralPrismaClient } from '@ferrogestor/database';
-import { config as loadEnv } from 'dotenv';
-import path from 'node:path';
-import { existsSync } from 'node:fs';
 
-function resolveDatabaseUrl(): string {
-  const candidates = [
-    path.resolve(process.cwd(), '.env'),
-    path.resolve(process.cwd(), '../../.env'),
-  ];
-  for (const file of candidates) {
-    if (existsSync(file)) {
-      loadEnv({ path: file, override: false });
-    }
-  }
-
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    throw new Error(
-      'DATABASE_URL não definido. Configure o SQLite central no arquivo .env na raiz do monorepo.',
-    );
-  }
-  return url;
+function resolveDatabaseUrl(): string | undefined {
+  return process.env.DATABASE_URL?.trim() || undefined;
 }
 
 @Injectable()
 export class PrismaService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(PrismaService.name);
   readonly db: CentralPrismaClient = createCentralPrisma(resolveDatabaseUrl());
 
   async onModuleInit() {
-    await this.db.$connect();
+    if (!resolveDatabaseUrl()) {
+      this.logger.warn(
+        'DATABASE_URL não definido — configure o Postgres (env ou Configurações → Banco online no desktop).',
+      );
+      return;
+    }
+    try {
+      await this.db.$connect();
+      this.logger.log('PostgreSQL conectado');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`PostgreSQL indisponível — ${msg}`);
+    }
   }
 
   async onModuleDestroy() {

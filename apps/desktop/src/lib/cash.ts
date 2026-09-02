@@ -10,16 +10,24 @@ export type CashMovement = {
     | 'SUPRIMENTO'
     | 'COMPRA_PAGA'
     | 'VENDA_RECEBIDA'
-    | 'DESPESA';
+    /** Venda com recebedor Caixa — dinheiro físico no gaveteiro (trocado). */
+    | 'TROCADO'
+    | 'DESPESA'
+    | 'EMPRESTIMO'
+    | 'DEVOLUCAO_EMPRESTIMO';
   amount: number;
   description: string;
   notes?: string;
   paymentMethod?: string;
   movedAt: string;
-  refType?: 'PURCHASE' | 'SALE';
+  refType?: 'PURCHASE' | 'SALE' | 'LOAN';
   refId?: string;
   /** Resumo humano: "Alumínio limpo 3 kg · Ferro 10 kg" */
   detail?: string;
+  /** Anulado: permanece na lista, fora de qualquer cálculo. */
+  voidedAt?: string;
+  voidReason?: string;
+  voidedBy?: string;
 };
 
 export type CashRegisterRecord = {
@@ -39,11 +47,46 @@ export type CashRegisterRecord = {
 
 const KEY = 'cash-registers';
 const AUTO_CLOSE_REASON = 'Fechamento automático por horário';
+const STALE_CLOSE_REASON =
+  'Fechamento automático — caixa do dia anterior (PC desligado / dia seguinte)';
+
+function localBusinessDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Horário HH:mm no dia local de `day`. */
+export function atLocalDateTime(day: Date, timeHHmm: string): Date | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(timeHHmm.trim());
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return null;
+  const result = new Date(day);
+  result.setHours(hours, minutes, 0, 0);
+  return result;
+}
 
 export function listCashRegisters(): CashRegisterRecord[] {
-  return loadJson<CashRegisterRecord[]>(KEY, []).sort((a, b) =>
-    b.openedAt.localeCompare(a.openedAt),
-  );
+  const raw = loadJson<CashRegisterRecord[] | null>(KEY, []);
+  const list = Array.isArray(raw) ? raw : [];
+  return list
+    .filter((c): c is CashRegisterRecord => !!c && typeof c === 'object' && !!c.id)
+    .map((c) => ({
+      ...c,
+      id: String(c.id),
+      openedAt:
+        typeof c.openedAt === 'string' && c.openedAt
+          ? c.openedAt
+          : '1970-01-01T00:00:00.000Z',
+      movements: Array.isArray(c.movements) ? c.movements : [],
+      openingBalance: Number(c.openingBalance) || 0,
+      status: c.status === 'OPEN' || c.status === 'CLOSED' ? c.status : 'CLOSED',
+      openedBy: String(c.openedBy ?? ''),
+    }))
+    .sort((a, b) => (b.openedAt || '').localeCompare(a.openedAt || ''));
 }
 
 export function getOpenCash(): CashRegisterRecord | undefined {
@@ -77,7 +120,16 @@ function persist(all: CashRegisterRecord[]) {
 
 export function calcExpected(cash: CashRegisterRecord): number {
   return cash.movements.reduce((acc, m) => {
-    if (['ENTRADA', 'SUPRIMENTO', 'VENDA_RECEBIDA'].includes(m.movementType)) {
+    if (m.voidedAt) return acc;
+    if (
+      [
+        'ENTRADA',
+        'SUPRIMENTO',
+        'VENDA_RECEBIDA',
+        'TROCADO',
+        'EMPRESTIMO',
+      ].includes(m.movementType)
+    ) {
       return acc + m.amount;
     }
     return acc - m.amount;
@@ -135,6 +187,12 @@ export async function ensureOpenCash(input: {
   if (existing) return { cash: existing, created: false };
 
   const settings = getSettings();
+  if (settings['cash.openMode'] === 'manual') {
+    throw new Error(
+      'Caixa fechado. Abra o caixa manualmente na tela do Caixa antes de lançar.',
+    );
+  }
+
   const suggested = getSuggestedOpeningBalance();
   const cash = await openCash({
     openedBy: input.openedBy,
@@ -200,11 +258,38 @@ export async function addQuickExpense(input: {
   return { cash: updated, created };
 }
 
+/** Coloca trocado / suprimento no caixa já aberto (não abre caixa novo). */
+export async function addTrocadoToOpenCash(input: {
+  amount: number;
+  notes?: string;
+}): Promise<CashRegisterRecord> {
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('Informe um valor de trocado válido.');
+  }
+  const cash = getOpenCash();
+  if (!cash) throw new Error('Abra o caixa antes de adicionar trocado.');
+  return addCashMovement(cash.id, {
+    movementType: 'SUPRIMENTO',
+    amount,
+    description: 'Trocado',
+    notes: input.notes?.trim() || undefined,
+  });
+}
+
 export async function updateCashMovement(
   cashId: string,
   movementId: string,
   patch: Partial<
-    Pick<CashMovement, 'amount' | 'description' | 'movementType' | 'notes' | 'paymentMethod'>
+    Pick<
+      CashMovement,
+      | 'amount'
+      | 'description'
+      | 'movementType'
+      | 'notes'
+      | 'paymentMethod'
+      | 'detail'
+    >
   >,
 ) {
   const all = listCashRegisters();
@@ -222,6 +307,44 @@ export async function updateCashMovement(
     version: 2,
   });
   return cash;
+}
+
+/** Anula (ou restaura) movimento em caixa aberto ou fechado — só relatório/cálculo. */
+export async function setCashMovementVoided(input: {
+  movementId: string;
+  voided: boolean;
+  reason?: string;
+  voidedBy?: string;
+}) {
+  const all = listCashRegisters();
+  for (const cash of all) {
+    const idx = cash.movements.findIndex((m) => m.id === input.movementId);
+    if (idx < 0) continue;
+    if (input.voided) {
+      cash.movements[idx] = {
+        ...cash.movements[idx],
+        voidedAt: new Date().toISOString(),
+        voidReason: input.reason?.trim() || undefined,
+        voidedBy: input.voidedBy?.trim() || undefined,
+      };
+    } else {
+      const next = { ...cash.movements[idx] };
+      delete next.voidedAt;
+      delete next.voidReason;
+      delete next.voidedBy;
+      cash.movements[idx] = next;
+    }
+    persist(all);
+    await enqueueSyncOp({
+      entityType: 'CashRegisterMovement',
+      entityId: input.movementId,
+      action: 'UPDATE',
+      payload: { ...cash.movements[idx], cashRegisterId: cash.id },
+      version: 2,
+    });
+    return cash;
+  }
+  throw new Error('Movimento não encontrado');
 }
 
 export async function deleteCashMovement(cashId: string, movementId: string) {
@@ -263,6 +386,8 @@ export async function closeCash(input: {
   informedBalance: number;
   differenceReason?: string;
   requireReason: boolean;
+  /** ISO — útil p/ fechar dia anterior com data do próprio dia */
+  closedAt?: string;
 }) {
   const all = listCashRegisters();
   const cash = all.find((c) => c.id === input.cashId);
@@ -276,7 +401,7 @@ export async function closeCash(input: {
   cash.informedBalance = input.informedBalance;
   cash.difference = difference;
   cash.differenceReason = input.differenceReason;
-  cash.closedAt = new Date().toISOString();
+  cash.closedAt = input.closedAt ?? new Date().toISOString();
   cash.status = 'CLOSED';
   persist(all);
   await enqueueSyncOp({
@@ -290,14 +415,54 @@ export async function closeCash(input: {
 }
 
 /**
- * If auto-close is enabled and now is past today's cutoff, close any OPEN
- * cash that was opened before the cutoff. Works on boot even if the PC was off.
+ * Fecha caixa OPEN de um dia civil anterior (ex.: PC desligou sem fechar).
+ * Roda no boot / intervalo — independente do horário de hoje.
+ */
+export async function maybeCloseStaleCash(
+  now = new Date(),
+): Promise<CashRegisterRecord | null> {
+  const open = getOpenCash();
+  if (!open) return null;
+
+  const openedAt = new Date(open.openedAt);
+  const openedDay = localBusinessDate(openedAt);
+  const today = localBusinessDate(now);
+  if (openedDay >= today) return null;
+
+  const settings = getSettings();
+  const expected = calcExpected(open);
+  let closedAt =
+    atLocalDateTime(openedAt, settings['cash.autoCloseTime'] || '23:59') ??
+    atLocalDateTime(openedAt, '23:59');
+  if (!closedAt || closedAt <= openedAt) {
+    closedAt = new Date(openedAt);
+    closedAt.setHours(23, 59, 0, 0);
+  }
+  // Não fechar no futuro relativo a agora
+  if (closedAt > now) closedAt = now;
+
+  return closeCash({
+    cashId: open.id,
+    informedBalance: expected,
+    differenceReason: STALE_CLOSE_REASON,
+    requireReason: false,
+    closedAt: closedAt.toISOString(),
+  });
+}
+
+/**
+ * Se fechamento automático estiver ativo e já passou o horário de hoje,
+ * fecha caixa OPEN aberto antes do cutoff.
  */
 export async function maybeAutoCloseCash(
   now = new Date(),
 ): Promise<CashRegisterRecord | null> {
+  // Sempre tenta fechar dia anterior primeiro (PC religado)
+  const stale = await maybeCloseStaleCash(now);
+  if (stale) return stale;
+
   const settings = getSettings();
-  if (!settings['cash.autoCloseEnabled']) return null;
+  if (settings['cash.closeMode'] !== 'auto') return null;
 
   const cutoff = getTodayAutoCloseAt(settings['cash.autoCloseTime'], now);
   if (!cutoff || now < cutoff) return null;
@@ -314,5 +479,57 @@ export async function maybeAutoCloseCash(
     informedBalance: expected,
     differenceReason: AUTO_CLOSE_REASON,
     requireReason: false,
+    closedAt: cutoff.toISOString(),
   });
+}
+
+/** Abre o caixa do dia se openMode=auto e não houver OPEN. */
+export async function maybeAutoOpenCash(input: {
+  openedBy: string;
+  now?: Date;
+}): Promise<CashRegisterRecord | null> {
+  const settings = getSettings();
+  if (settings['cash.openMode'] !== 'auto') return null;
+  if (!input.openedBy.trim()) return null;
+  if (getOpenCash()) return null;
+
+  const suggested = getSuggestedOpeningBalance();
+  return openCash({
+    openedBy: input.openedBy.trim(),
+    openingBalance: suggested.amount,
+    notes:
+      suggested.source === 'last_close'
+        ? 'Aberto automaticamente (saldo do fechamento anterior)'
+        : 'Aberto automaticamente',
+    allowMultiple: settings['cash.allowMultipleOpen'],
+  });
+}
+
+/**
+ * Boot / intervalo: fecha dia anterior ou horário → opcionalmente abre o de hoje.
+ */
+export async function reconcileCashSession(input?: {
+  openedBy?: string;
+  now?: Date;
+}): Promise<{
+  closed: CashRegisterRecord | null;
+  opened: CashRegisterRecord | null;
+  staleClosed: boolean;
+}> {
+  const now = input?.now ?? new Date();
+  const beforeClose = getOpenCash();
+  const wasStale =
+    !!beforeClose &&
+    localBusinessDate(new Date(beforeClose.openedAt)) < localBusinessDate(now);
+
+  const closed = await maybeAutoCloseCash(now);
+  let opened: CashRegisterRecord | null = null;
+  if (input?.openedBy) {
+    opened = await maybeAutoOpenCash({ openedBy: input.openedBy, now });
+  }
+  return {
+    closed,
+    opened,
+    staleClosed: !!closed && wasStale,
+  };
 }

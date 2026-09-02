@@ -7,7 +7,7 @@ export type PatioMovement = {
   kind: 'IN' | 'OUT';
   weight: number;
   unitCost: number;
-  sourceType: 'PURCHASE' | 'SALE';
+  sourceType: 'PURCHASE' | 'SALE' | 'ADJUSTMENT';
   sourceId: string;
   at: string;
   notes?: string;
@@ -19,6 +19,19 @@ export type PatioBalance = {
   weight: number;
   avgCost: number;
   stockValue: number;
+};
+
+/** Lote de compra ainda com kg no pátio (FIFO). */
+export type PurchaseLotBalance = {
+  purchaseId: string;
+  movementId: string;
+  materialId: string;
+  materialName: string;
+  documentNumber: string;
+  purchasedAt: string;
+  supplierName: string;
+  unitCost: number;
+  remainingKg: number;
 };
 
 const KEY = 'patio-movements';
@@ -40,7 +53,6 @@ export function getPatioBalances(): PatioBalance[] {
     { name: string; weight: number; value: number }
   >();
 
-  // Process oldest first for average
   const chronological = [...listMovements()].sort((a, b) =>
     a.at.localeCompare(b.at),
   );
@@ -60,7 +72,6 @@ export function getPatioBalances(): PatioBalance[] {
         value: Math.round(newValue * 100) / 100,
       });
     } else {
-      // OUT uses current avg; reduce weight and proportional value
       const avg = cur.weight > 0 ? cur.value / cur.weight : m.unitCost;
       const outW = Math.min(m.weight, cur.weight);
       const newWeight = Math.max(0, cur.weight - m.weight);
@@ -136,14 +147,17 @@ export async function applySaleToPatio(input: {
     weight: number;
   }>;
   at?: string;
-}): Promise<{ warnings: string[]; costs: Array<{ materialId: string; avgCost: number; weight: number }> }> {
+}): Promise<{
+  warnings: string[];
+  costs: Array<{ materialId: string; avgCost: number; weight: number }>;
+}> {
   const warnings: string[] = [];
-  const costs: Array<{ materialId: string; avgCost: number; weight: number }> = [];
+  const costs: Array<{ materialId: string; avgCost: number; weight: number }> =
+    [];
   const all = listMovements();
   const at = input.at ?? new Date().toISOString();
 
   for (const item of input.items) {
-    // Snapshot before this OUT (from persisted ledger only)
     const bal = getMaterialBalance(item.materialId);
     const available = bal?.weight ?? 0;
     const avgCost = bal?.avgCost ?? 0;
@@ -171,27 +185,192 @@ export async function applySaleToPatio(input: {
       action: 'CREATE',
       payload: row as unknown as Record<string, unknown>,
     });
-    // Persist incrementally so subsequent items of same material see updated stock
     persist(all);
   }
   return { warnings, costs };
 }
 
-export function listPatioMovements(limit = 50): PatioMovement[] {
-  return listMovements().slice(0, limit);
+/**
+ * Baixa parcial ligada a uma compra: OUT ADJUSTMENT (não apaga o IN).
+ * Saldo do lote = IN − OUTs ADJUSTMENT do mesmo purchaseId+material.
+ */
+export async function applyAdjustmentOut(input: {
+  purchaseId: string;
+  materialId: string;
+  materialName: string;
+  weight: number;
+  unitCost: number;
+  reason?: string;
+  at?: string;
+}): Promise<PatioMovement> {
+  const weight = Math.round(input.weight * 1000) / 1000;
+  if (!(weight > 0)) throw new Error('Informe um peso válido para a baixa.');
+
+  const lot = listPurchaseLotsByMaterial(input.materialId).find(
+    (l) => l.purchaseId === input.purchaseId,
+  );
+  if (!lot || lot.remainingKg + 0.0005 < weight) {
+    throw new Error(
+      `Peso maior que o disponível nesta compra (${(lot?.remainingKg ?? 0).toFixed(3)} kg).`,
+    );
+  }
+
+  const all = listMovements();
+  const row: PatioMovement = {
+    id: newId(),
+    materialId: input.materialId,
+    materialName: input.materialName,
+    kind: 'OUT',
+    weight,
+    unitCost: input.unitCost,
+    sourceType: 'ADJUSTMENT',
+    sourceId: input.purchaseId,
+    at: input.at ?? new Date().toISOString(),
+    notes: input.reason?.trim() || undefined,
+  };
+  all.unshift(row);
+  persist(all);
+  await enqueueSyncOp({
+    entityType: 'PatioMovement',
+    entityId: row.id,
+    action: 'CREATE',
+    payload: row as unknown as Record<string, unknown>,
+  });
+  return row;
 }
 
-/** Remove entradas do pátio ligadas a uma compra (desfaz o estoque). */
+/** Lotes FIFO com kg restante por compra+material. */
+export function listPurchaseLotsByMaterial(
+  materialId: string,
+): PurchaseLotBalance[] {
+  const all = listMovements();
+  const ins = all
+    .filter(
+      (m) =>
+        m.kind === 'IN' &&
+        m.sourceType === 'PURCHASE' &&
+        m.materialId === materialId,
+    )
+    .sort((a, b) => a.at.localeCompare(b.at));
+
+  const lots: PurchaseLotBalance[] = [];
+  for (const inn of ins) {
+    const taken = all
+      .filter(
+        (m) =>
+          m.kind === 'OUT' &&
+          m.sourceType === 'ADJUSTMENT' &&
+          m.sourceId === inn.sourceId &&
+          m.materialId === materialId,
+      )
+      .reduce((acc, m) => acc + m.weight, 0);
+    const remainingKg = Math.round((inn.weight - taken) * 1000) / 1000;
+    if (remainingKg <= 0.0005) continue;
+    const purchases = loadJson<
+      Array<{
+        id: string;
+        documentNumber?: string;
+        purchasedAt?: string;
+        supplierName?: string;
+      }>
+    >('purchases', []);
+    const purchase = purchases.find((p) => p.id === inn.sourceId);
+    lots.push({
+      purchaseId: inn.sourceId,
+      movementId: inn.id,
+      materialId: inn.materialId,
+      materialName: inn.materialName,
+      documentNumber: purchase?.documentNumber ?? '—',
+      purchasedAt: purchase?.purchasedAt ?? inn.at,
+      supplierName: purchase?.supplierName ?? '—',
+      unitCost: inn.unitCost,
+      remainingKg,
+    });
+  }
+  return lots;
+}
+
+export function listPatioMovements(limit?: number): PatioMovement[] {
+  const all = listMovements();
+  if (limit === undefined || limit <= 0) return all;
+  return all.slice(0, limit);
+}
+
+export type PatioMaterialPeriod = {
+  materialId: string;
+  materialName: string;
+  inKg: number;
+  outKg: number;
+  netKg: number;
+  inValue: number;
+  outValue: number;
+};
+
+export type PatioReportSummary = {
+  count: number;
+  inKg: number;
+  outKg: number;
+  inValue: number;
+  outValue: number;
+  byMaterial: PatioMaterialPeriod[];
+};
+
+export function sumPatioMovements(rows: PatioMovement[]): PatioReportSummary {
+  const byMat = new Map<string, PatioMaterialPeriod>();
+  let inKg = 0;
+  let outKg = 0;
+  let inValue = 0;
+  let outValue = 0;
+
+  for (const m of rows) {
+    const cur = byMat.get(m.materialId) ?? {
+      materialId: m.materialId,
+      materialName: m.materialName,
+      inKg: 0,
+      outKg: 0,
+      netKg: 0,
+      inValue: 0,
+      outValue: 0,
+    };
+    const value = m.weight * m.unitCost;
+    if (m.kind === 'IN') {
+      cur.inKg += m.weight;
+      cur.inValue += value;
+      inKg += m.weight;
+      inValue += value;
+    } else {
+      cur.outKg += m.weight;
+      cur.outValue += value;
+      outKg += m.weight;
+      outValue += value;
+    }
+    cur.netKg = Math.round((cur.inKg - cur.outKg) * 1000) / 1000;
+    byMat.set(m.materialId, cur);
+  }
+
+  return {
+    count: rows.length,
+    inKg: Math.round(inKg * 1000) / 1000,
+    outKg: Math.round(outKg * 1000) / 1000,
+    inValue: Math.round(inValue * 100) / 100,
+    outValue: Math.round(outValue * 100) / 100,
+    byMaterial: [...byMat.values()].sort((a, b) =>
+      a.materialName.localeCompare(b.materialName, 'pt-BR'),
+    ),
+  };
+}
+
+/** Remove IN de compra e OUTs ADJUSTMENT ligados a ela. */
 export async function removePurchaseFromPatio(purchaseId: string) {
   const all = listMovements();
   const keep: PatioMovement[] = [];
   const removed: PatioMovement[] = [];
   for (const m of all) {
-    if (m.sourceType === 'PURCHASE' && m.sourceId === purchaseId) {
-      removed.push(m);
-    } else {
-      keep.push(m);
-    }
+    const linked =
+      m.sourceId === purchaseId &&
+      (m.sourceType === 'PURCHASE' || m.sourceType === 'ADJUSTMENT');
+    if (linked) removed.push(m);
+    else keep.push(m);
   }
   if (removed.length === 0) return;
   persist(keep);
@@ -203,4 +382,24 @@ export async function removePurchaseFromPatio(purchaseId: string) {
       payload: { id: row.id, sourceId: purchaseId },
     });
   }
+}
+
+/** Exclui só uma baixa manual (ADJUSTMENT OUT). */
+export async function deleteAdjustmentMovement(movementId: string) {
+  const all = listMovements();
+  const row = all.find((m) => m.id === movementId);
+  if (!row) throw new Error('Movimento não encontrado');
+  if (!(row.kind === 'OUT' && row.sourceType === 'ADJUSTMENT')) {
+    throw new Error(
+      'Só dá para excluir baixas manuais. Ajuste entradas pela compra.',
+    );
+  }
+  const keep = all.filter((m) => m.id !== movementId);
+  persist(keep);
+  await enqueueSyncOp({
+    entityType: 'PatioMovement',
+    entityId: movementId,
+    action: 'DELETE',
+    payload: { id: movementId },
+  });
 }

@@ -25,21 +25,31 @@
       "default": "./dist/local.js"
     }
   },
+  "files": [
+    "dist",
+    "prisma/generated/central",
+    "prisma/generated/local",
+    "prisma/central/schema.prisma",
+    "prisma/local/schema.prisma"
+  ],
   "scripts": {
     "generate": "npm run generate:central && npm run generate:local",
     "generate:central": "prisma generate --schema=prisma/central/schema.prisma",
     "generate:local": "prisma generate --schema=prisma/local/schema.prisma",
     "migrate:central": "prisma migrate dev --schema=prisma/central/schema.prisma --name init",
     "migrate:local": "prisma migrate dev --schema=prisma/local/schema.prisma --name init",
-    "db:push:central": "prisma db push --schema=prisma/central/schema.prisma",
+    "db:push:central": "tsx scripts/prisma-central.ts db push",
     "db:push:local": "prisma db push --schema=prisma/local/schema.prisma",
     "migrate:central:deploy": "prisma migrate deploy --schema=prisma/central/schema.prisma",
     "migrate:local:deploy": "prisma migrate deploy --schema=prisma/local/schema.prisma",
     "seed": "tsx src/seed.ts",
+    "test:pg": "tsx scripts/test-pg.ts",
+    "test": "vitest run",
     "build": "tsc -p tsconfig.json",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@ferrogestor/shared": "workspace:*",
     "@prisma/client": "^6.3.1",
     "dotenv": "^17.4.2"
   },
@@ -48,7 +58,8 @@
     "argon2": "^0.41.1",
     "prisma": "^6.3.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
   },
   "prisma": {
     "seed": "tsx src/seed.ts"

@@ -11,11 +11,13 @@ import { ContextMenu, useContextMenu } from '../components/ContextMenu';
 import { MaterialThumb } from '../components/MaterialThumb';
 import {
   listMaterials,
+  MATERIAL_HOTKEYS,
   MATERIAL_ICON_OPTIONS,
   clearMaterialPhoto,
   deleteMaterial,
   saveMaterialPhoto,
   upsertMaterial,
+  type MaterialHotkey,
   type MaterialIconSlug,
   type MaterialRecord,
 } from '../lib/materials';
@@ -27,6 +29,7 @@ const emptyForm = {
   sellPrice: '',
   active: true,
   icon: 'default' as MaterialIconSlug,
+  hotkey: '' as '' | MaterialHotkey,
 };
 
 export function MaterialsPage() {
@@ -51,6 +54,7 @@ export function MaterialsPage() {
       sellPrice: String(m.sellPrice),
       active: m.active,
       icon: m.icon ?? 'default',
+      hotkey: m.hotkey ?? '',
     });
     setPendingPhoto(null);
     setError(null);
@@ -74,7 +78,7 @@ export function MaterialsPage() {
     const buyPrice = Number(form.buyPrice);
     const sellPrice = Number(form.sellPrice);
     if (!Number.isFinite(buyPrice) || buyPrice < 0) {
-      setError('Preço de recebimento inválido.');
+      setError('Preço de compra inválido.');
       return;
     }
     if (!Number.isFinite(sellPrice) || sellPrice < 0) {
@@ -89,6 +93,7 @@ export function MaterialsPage() {
       sellPrice,
       active: form.active,
       icon: form.icon,
+      hotkey: form.hotkey || undefined,
       photoPath: editing?.photoPath,
     })
       .then(async (saved) => {
@@ -106,7 +111,7 @@ export function MaterialsPage() {
     <div>
       <PageHeader
         title="Materiais"
-        subtitle="Preço ao receber / vender, ícone Lucide e foto opcional."
+        subtitle="Preço de compra / venda, ícone Lucide e foto opcional."
       />
 
       {error && (
@@ -235,7 +240,7 @@ export function MaterialsPage() {
               </select>
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Preço receber (R$/kg)">
+              <Field label="Preço comprar (R$/kg)">
                 <input
                   className={fieldClass}
                   inputMode="decimal"
@@ -252,6 +257,38 @@ export function MaterialsPage() {
                 />
               </Field>
             </div>
+            <Field label="Atalho no Caixa (0–9 ou letra)">
+              <select
+                className={fieldClass}
+                value={form.hotkey}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    hotkey: e.target.value as '' | MaterialHotkey,
+                  }))
+                }
+              >
+                <option value="">Nenhum</option>
+                {MATERIAL_HOTKEYS.map((k) => {
+                  const taken = materials.find(
+                    (m) =>
+                      m.hotkey === k &&
+                      m.active &&
+                      m.id !== editingId,
+                  );
+                  return (
+                    <option key={k} value={k}>
+                      {k.toUpperCase()}
+                      {taken ? ` (troca de ${taken.name})` : ''}
+                    </option>
+                  );
+                })}
+              </select>
+              <p className="mt-1 text-xs text-ink-400">
+                No Caixa (aba Comprar), a tecla seleciona o material — só fora dos campos de texto. Padrão: 0 = Indefinido, 1–6 nos demais do catálogo.
+              </p>
+            </Field>
+
             <label className="flex items-center gap-2 text-sm text-ink-100">
               <input
                 type="checkbox"
@@ -323,7 +360,7 @@ export function MaterialsPage() {
                   )}
                 </div>
                 <div className="mt-1 text-ink-300">
-                  Receber R$ {m.buyPrice.toFixed(2)} · Vender R${' '}
+                  Comprar R$ {m.buyPrice.toFixed(2)} · Vender R${' '}
                   {m.sellPrice.toFixed(2)} / {m.unit.toLowerCase()}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">

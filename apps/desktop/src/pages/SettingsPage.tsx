@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Field,
   GhostButton,
@@ -8,7 +9,21 @@ import {
   fieldClass,
 } from '../components/Page';
 import { getSettings, updateSettings, type AppSettings } from '../lib/settings';
+import { wipeLocalData } from '../lib/wipe-local-data';
+import { exportDataPack, importDataPack } from '../lib/data-pack';
+import { EMPTY_CENTRAL_CONNECTION, type CentralConnectionConfig } from '../lib/central-config';
 import { useAppStore } from '../stores/app-store';
+import { syncUiScaleFromSettings } from '../lib/ui-scale';
+
+type TabId = 'empresa' | 'operacao' | 'banco' | 'dados' | 'sistema';
+
+const TABS: Array<{ id: TabId; label: string }> = [
+  { id: 'empresa', label: 'Empresa' },
+  { id: 'operacao', label: 'Operação' },
+  { id: 'banco', label: 'Banco online' },
+  { id: 'dados', label: 'Dados' },
+  { id: 'sistema', label: 'Sistema' },
+];
 
 function Section({
   title,
@@ -66,13 +81,35 @@ type UpdatePhase =
   | 'dev';
 
 export function SettingsPage() {
+  const navigate = useNavigate();
   const appInfo = useAppStore((s) => s.appInfo);
+  const [tab, setTab] = useState<TabId>('empresa');
   const [form, setForm] = useState<AppSettings>(() => getSettings());
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [updatePhase, setUpdatePhase] = useState<UpdatePhase>('idle');
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
   const [downloadPct, setDownloadPct] = useState<number | null>(null);
+  const [preserveSettingsOnWipe, setPreserveSettingsOnWipe] = useState(true);
+  const [wipeConfirm, setWipeConfirm] = useState('');
+  const [wiping, setWiping] = useState(false);
+  const [wipeMsg, setWipeMsg] = useState<string | null>(null);
+  const [packBusy, setPackBusy] = useState<'export' | 'import' | null>(null);
+  const [packMsg, setPackMsg] = useState<string | null>(null);
+  const [packMsgTone, setPackMsgTone] = useState<'ok' | 'err'>('ok');
+  const [importConfirm, setImportConfirm] = useState('');
+  const [db, setDb] = useState<CentralConnectionConfig>({ ...EMPTY_CENTRAL_CONNECTION });
+  const [dbSaving, setDbSaving] = useState(false);
+  const [dbMsg, setDbMsg] = useState<string | null>(null);
+  const [dbMsgTone, setDbMsgTone] = useState<'ok' | 'err'>('ok');
+  const [dbBusy, setDbBusy] = useState<'pg' | null>(null);
+  const clearOperator = useAppStore((s) => s.clearOperator);
+
+  useEffect(() => {
+    void window.ferrogestor?.getCentralConnection?.().then((c) => {
+      if (c) setDb(c);
+    });
+  }, []);
 
   useEffect(() => {
     const api = window.ferrogestor;
@@ -124,14 +161,160 @@ export function SettingsPage() {
     setSaved(false);
   };
 
+  const setDbField = <K extends keyof CentralConnectionConfig>(
+    key: K,
+    value: CentralConnectionConfig[K],
+  ) => {
+    setDb((d) => ({ ...d, [key]: value }));
+    setDbMsg(null);
+  };
+
   const save = () => {
     setSaving(true);
     void updateSettings(form)
       .then(() => {
+        syncUiScaleFromSettings();
         setSaved(true);
         setSaving(false);
       })
       .catch(() => setSaving(false));
+  };
+
+  const saveDb = async () => {
+    if (!window.ferrogestor?.saveCentralConnection) {
+      setDbMsgTone('err');
+      setDbMsg('Disponível apenas no app Electron.');
+      return;
+    }
+    setDbSaving(true);
+    setDbMsg(null);
+    try {
+      const result = await window.ferrogestor.saveCentralConnection({
+        ...db,
+        deviceName: db.deviceName || 'Escritório',
+      });
+      setDb(result.connection);
+      await updateSettings({
+        'sync.autoIntervalMinutes': form['sync.autoIntervalMinutes'],
+        'sync.preferLocal': form['sync.preferLocal'] !== false,
+      });
+      setDbMsgTone(result.connect.ok ? 'ok' : 'err');
+      setDbMsg(
+        result.connect.ok
+          ? 'Salvo e conectado ao PostgreSQL. Este PC foi registrado.'
+          : `Salvo, mas conexão: ${result.connect.error}`,
+      );
+    } catch (e) {
+      setDbMsgTone('err');
+      setDbMsg(e instanceof Error ? e.message : 'Falha ao salvar.');
+    } finally {
+      setDbSaving(false);
+    }
+  };
+
+  const testPg = async () => {
+    if (!window.ferrogestor?.testCentralPostgres) return;
+    setDbBusy('pg');
+    setDbMsg(null);
+    const r = await window.ferrogestor.testCentralPostgres(db);
+    setDbBusy(null);
+    setDbMsgTone(r.ok ? 'ok' : 'err');
+    setDbMsg(r.ok ? r.detail : r.error);
+  };
+
+  const runWipe = () => {
+    if (wipeConfirm.trim().toUpperCase() !== 'ZERAR') return;
+    setWiping(true);
+    setWipeMsg(null);
+    void wipeLocalData({ preserveSettings: preserveSettingsOnWipe })
+      .then((r) => {
+        const archiveBit = r.archive
+          ? ` Histórico arquivado como ${r.archive.archivedName} (veja Dados antigos).`
+          : r.archiveOfflineMessage
+            ? ` ${r.archiveOfflineMessage}`
+            : '';
+        setWipeMsg(
+          `Dados apagados (${r.removedKeys.length} chaves` +
+            (r.diskCleared.length
+              ? `, disco: ${r.diskCleared.join(', ')}`
+              : '') +
+            ').' +
+            archiveBit +
+            ' Reiniciando…',
+        );
+        clearOperator();
+        setTimeout(() => {
+          window.location.reload();
+        }, 900);
+      })
+      .catch((e) => {
+        setWiping(false);
+        setWipeMsg(
+          e instanceof Error ? e.message : 'Falha ao zerar dados locais.',
+        );
+      });
+  };
+
+  const runExportPack = () => {
+    setPackBusy('export');
+    setPackMsg(null);
+    void exportDataPack()
+      .then((r) => {
+        setPackBusy(null);
+        if ('cancelled' in r && r.cancelled) {
+          setPackMsgTone('ok');
+          setPackMsg('Exportação cancelada.');
+          return;
+        }
+        if (!r.ok) {
+          setPackMsgTone('err');
+          setPackMsg('error' in r ? r.error : 'Falha ao exportar.');
+          return;
+        }
+        setPackMsgTone('ok');
+        setPackMsg(
+          `Exportado: ${r.keyCount} tabelas, ${r.mediaCount} arquivo(s) de mídia.\n${r.path}`,
+        );
+      })
+      .catch((e) => {
+        setPackBusy(null);
+        setPackMsgTone('err');
+        setPackMsg(e instanceof Error ? e.message : 'Falha ao exportar.');
+      });
+  };
+
+  const runImportPack = () => {
+    if (importConfirm.trim().toUpperCase() !== 'IMPORTAR') return;
+    setPackBusy('import');
+    setPackMsg(null);
+    void importDataPack()
+      .then((r) => {
+        if ('cancelled' in r && r.cancelled) {
+          setPackBusy(null);
+          setPackMsgTone('ok');
+          setPackMsg('Importação cancelada.');
+          return;
+        }
+        if (!r.ok) {
+          setPackBusy(null);
+          setPackMsgTone('err');
+          setPackMsg('error' in r ? r.error : 'Falha ao importar.');
+          return;
+        }
+        setPackMsgTone('ok');
+        setPackMsg(
+          `Importado: ${r.writtenKeys.length} chaves, ${r.mediaCount} mídia(s). Reiniciando…`,
+        );
+        clearOperator();
+        setTimeout(() => {
+          window.location.reload();
+        }, 700);
+      })
+      .catch((e) => {
+        setPackBusy(null);
+        setPackMsgTone('err');
+        setPackMsg(e instanceof Error ? e.message : 'Falha ao importar.');
+      });
   };
 
   const checkUpdates = () => {
@@ -152,292 +335,567 @@ export function SettingsPage() {
     <div>
       <PageHeader
         title="Configurações"
-        subtitle="Ajuste empresa, caixa do dia, vendas, impressão e sync. Mudanças entram em vigor na hora."
+        subtitle="Organize por abas. Banco online: só PostgreSQL — o app sincroniza direto, sem API."
         actions={
-          <div className="flex items-center gap-3">
-            {saved && <span className="text-sm text-moss-400">Salvo</span>}
-            <PrimaryButton onClick={save} disabled={saving}>
-              {saving ? 'Salvando…' : 'Salvar tudo'}
-            </PrimaryButton>
-          </div>
+          tab !== 'banco' ? (
+            <div className="flex items-center gap-3">
+              {saved && <span className="text-sm text-moss-400">Salvo</span>}
+              <PrimaryButton onClick={save} disabled={saving}>
+                {saving ? 'Salvando…' : 'Salvar'}
+              </PrimaryButton>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <PrimaryButton onClick={() => void saveDb()} disabled={dbSaving}>
+                {dbSaving ? 'Salvando…' : 'Testar e salvar'}
+              </PrimaryButton>
+            </div>
+          )
         }
       />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Section
-          title="Empresa"
-          hint="Dados que aparecem nos PDFs de venda e fechamento de caixa."
-        >
-          <Field label="Nome de exibição">
-            <input
-              className={fieldClass}
-              value={form['company.displayName']}
-              onChange={(e) => setField('company.displayName', e.target.value)}
-            />
-          </Field>
-          <Field label="CNPJ">
-            <input
-              className={fieldClass}
-              value={form['company.cnpj']}
-              onChange={(e) => setField('company.cnpj', e.target.value)}
-              placeholder="00.000.000/0000-00"
-            />
-          </Field>
-          <Field label="Endereço">
-            <input
-              className={fieldClass}
-              value={form['company.address']}
-              onChange={(e) => setField('company.address', e.target.value)}
-            />
-          </Field>
-          <Field label="Telefone">
-            <input
-              className={fieldClass}
-              value={form['company.phone']}
-              onChange={(e) => setField('company.phone', e.target.value)}
-            />
-          </Field>
-          <Field label="Caminho do logo (opcional)">
-            <input
-              className={fieldClass}
-              value={form['company.logoPath']}
-              onChange={(e) => setField('company.logoPath', e.target.value)}
-              placeholder="C:\\caminho\\logo.png"
-            />
-          </Field>
-        </Section>
+      <div className="mb-4 flex flex-wrap gap-1 border-b border-white/10 pb-2">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`rounded-md px-3 py-2 text-sm font-medium transition ${
+              tab === t.id
+                ? 'bg-brand-500 text-ink-950'
+                : 'text-ink-200 hover:bg-white/5 hover:text-ink-50'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-        <Section
-          title="Caixa do dia"
-          hint="Saldo padrão ao abrir, fechamento automático e regras de conferência."
-        >
-          <Field label="Saldo inicial padrão (R$)">
-            <input
-              className={fieldClass}
-              inputMode="decimal"
-              value={String(form['cash.defaultOpeningBalance'])}
-              onChange={(e) =>
-                setField('cash.defaultOpeningBalance', Number(e.target.value) || 0)
-              }
+      {tab === 'empresa' && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Section
+            title="Dados da empresa"
+            hint="Aparecem nos PDFs de venda e fechamento de caixa."
+          >
+            <Field label="Nome de exibição">
+              <input
+                className={fieldClass}
+                value={form['company.displayName']}
+                onChange={(e) => setField('company.displayName', e.target.value)}
+              />
+            </Field>
+            <Field label="CNPJ">
+              <input
+                className={fieldClass}
+                value={form['company.cnpj']}
+                onChange={(e) => setField('company.cnpj', e.target.value)}
+                placeholder="00.000.000/0000-00"
+              />
+            </Field>
+            <Field label="Endereço">
+              <input
+                className={fieldClass}
+                value={form['company.address']}
+                onChange={(e) => setField('company.address', e.target.value)}
+              />
+            </Field>
+            <Field label="Telefone">
+              <input
+                className={fieldClass}
+                value={form['company.phone']}
+                onChange={(e) => setField('company.phone', e.target.value)}
+              />
+            </Field>
+            <Field label="Caminho do logo (opcional)">
+              <input
+                className={fieldClass}
+                value={form['company.logoPath']}
+                onChange={(e) => setField('company.logoPath', e.target.value)}
+                placeholder="C:\\caminho\\logo.png"
+              />
+            </Field>
+          </Section>
+          <Section title="Impressão" hint="Formato dos comprovantes em PDF.">
+            <Field label="Papel">
+              <select
+                className={fieldClass}
+                value={form['print.paper']}
+                onChange={(e) => setField('print.paper', e.target.value)}
+              >
+                <option value="A4">A4</option>
+                <option value="A5">A5</option>
+              </select>
+            </Field>
+            <Field label="Mensagem de rodapé">
+              <input
+                className={fieldClass}
+                value={form['print.footerMessage']}
+                onChange={(e) => setField('print.footerMessage', e.target.value)}
+              />
+            </Field>
+            <Switch
+              label="Mostrar QR Code no PDF"
+              checked={form['print.showQrCode']}
+              onChange={(v) => setField('print.showQrCode', v)}
             />
-          </Field>
-          <Switch
-            label="Fechamento automático por horário"
-            hint="Se o PC estiver desligado, o fechamento acontece na próxima abertura do sistema."
-            checked={form['cash.autoCloseEnabled']}
-            onChange={(v) => setField('cash.autoCloseEnabled', v)}
-          />
-          <Field label="Horário de fechamento automático">
-            <input
-              className={fieldClass}
-              type="time"
-              value={form['cash.autoCloseTime']}
-              onChange={(e) => setField('cash.autoCloseTime', e.target.value || '18:00')}
-              disabled={!form['cash.autoCloseEnabled']}
-            />
-          </Field>
-          <Switch
-            label="Exigir justificativa se houver diferença"
-            hint="No fechamento manual, obriga explicar quando o saldo contado ≠ esperado."
-            checked={form['cash.requireDifferenceReason']}
-            onChange={(v) => setField('cash.requireDifferenceReason', v)}
-          />
-          <Switch
-            label="Permitir vários caixas abertos"
-            hint="Na operação normalmente fica desligado (um caixa por vez)."
-            checked={form['cash.allowMultipleOpen']}
-            onChange={(v) => setField('cash.allowMultipleOpen', v)}
-          />
-        </Section>
+          </Section>
+        </div>
+      )}
 
-        <Section
-          title="Recebedores"
-          hint="Quem pode receber nas vendas (PIX/dinheiro). Padrão: Keity e Steve — edite ou adicione mais."
-        >
-          <Field label="Nomes dos recebedores">
-            <div className="grid gap-2">
-              {(form['sales.partners'] ?? ['Keity', 'Steve']).map((name, idx) => (
-                <div key={idx} className="flex gap-2">
-                  <input
-                    className={`flex-1 ${fieldClass}`}
-                    value={name}
-                    placeholder={`Recebedor ${idx + 1}`}
-                    onChange={(e) => {
-                      const next = [...(form['sales.partners'] ?? [])];
-                      next[idx] = e.target.value;
-                      setField('sales.partners', next);
-                    }}
-                  />
-                  {(form['sales.partners']?.length ?? 0) > 1 && (
-                    <GhostButton
-                      type="button"
-                      className="!px-2 !py-1.5 text-xs"
-                      onClick={() => {
-                        const next = (form['sales.partners'] ?? []).filter(
-                          (_, i) => i !== idx,
-                        );
-                        setField(
-                          'sales.partners',
-                          next.length ? next : ['Keity', 'Steve'],
-                        );
-                      }}
-                    >
-                      Remover
-                    </GhostButton>
-                  )}
-                </div>
-              ))}
-              <GhostButton
-                type="button"
-                className="!py-1.5 text-xs"
-                onClick={() =>
-                  setField('sales.partners', [
-                    ...(form['sales.partners'] ?? ['Keity', 'Steve']),
-                    '',
-                  ])
+      {tab === 'operacao' && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Section
+            title="Caixa do dia"
+            hint="Abertura/fechamento automático ou manual, saldo padrão e regras."
+          >
+            <Field label="Abertura do caixa">
+              <select
+                className={fieldClass}
+                value={form['cash.openMode']}
+                onChange={(e) =>
+                  setField(
+                    'cash.openMode',
+                    e.target.value === 'auto' ? 'auto' : 'manual',
+                  )
                 }
               >
-                + Adicionar recebedor
+                <option value="manual">
+                  Manual (padrão) — operador abre na tela do Caixa
+                </option>
+                <option value="auto">
+                  Automática — abre sozinho ao ligar / após fechar o dia
+                </option>
+              </select>
+            </Field>
+            <Field label="Fechamento do caixa">
+              <select
+                className={fieldClass}
+                value={form['cash.closeMode']}
+                onChange={(e) =>
+                  setField(
+                    'cash.closeMode',
+                    e.target.value === 'auto' ? 'auto' : 'manual',
+                  )
+                }
+              >
+                <option value="auto">
+                  Automático — no horário e ao religar (fecha dia anterior)
+                </option>
+                <option value="manual">
+                  Manual — só fecha na tela (ainda fecha dia anterior ao religar)
+                </option>
+              </select>
+            </Field>
+            <Field label="Saldo inicial padrão (R$)">
+              <input
+                className={fieldClass}
+                inputMode="decimal"
+                value={String(form['cash.defaultOpeningBalance'])}
+                onChange={(e) =>
+                  setField('cash.defaultOpeningBalance', Number(e.target.value) || 0)
+                }
+              />
+            </Field>
+            <Field label="Horário de fechamento automático">
+              <input
+                className={fieldClass}
+                type="time"
+                value={form['cash.autoCloseTime']}
+                onChange={(e) => setField('cash.autoCloseTime', e.target.value || '18:00')}
+                disabled={form['cash.closeMode'] !== 'auto'}
+              />
+            </Field>
+            <p className="text-[11px] text-ink-400">
+              Se o PC desligar sem fechar, ao religar o app fecha o caixa do dia
+              anterior (saldo esperado) e, se a abertura for automática, abre o
+              de hoje.
+            </p>
+            <Switch
+              label="Exigir justificativa se houver diferença"
+              checked={form['cash.requireDifferenceReason']}
+              onChange={(v) => setField('cash.requireDifferenceReason', v)}
+            />
+            <Switch
+              label="Permitir vários caixas abertos"
+              checked={form['cash.allowMultipleOpen']}
+              onChange={(v) => setField('cash.allowMultipleOpen', v)}
+            />
+          </Section>
+          <Section title="Recebedores" hint="Sócios que recebem nas vendas. Caixa (trocado no gaveteiro) já vem fixo na tela de Vendas.">
+            <Field label="Nomes">
+              <div className="grid gap-2">
+                {(form['sales.partners'] ?? ['Keity', 'Steve']).map((name, idx) => (
+                  <div key={idx} className="flex gap-2">
+                    <input
+                      className={`flex-1 ${fieldClass}`}
+                      value={name}
+                      placeholder={`Recebedor ${idx + 1}`}
+                      onChange={(e) => {
+                        const next = [...(form['sales.partners'] ?? [])];
+                        next[idx] = e.target.value;
+                        setField('sales.partners', next);
+                      }}
+                    />
+                    {(form['sales.partners']?.length ?? 0) > 1 && (
+                      <GhostButton
+                        type="button"
+                        className="!px-2 !py-1.5 text-xs"
+                        onClick={() => {
+                          const next = (form['sales.partners'] ?? []).filter(
+                            (_, i) => i !== idx,
+                          );
+                          setField(
+                            'sales.partners',
+                            next.length ? next : ['Keity', 'Steve'],
+                          );
+                        }}
+                      >
+                        Remover
+                      </GhostButton>
+                    )}
+                  </div>
+                ))}
+                <GhostButton
+                  type="button"
+                  className="!py-1.5 text-xs"
+                  onClick={() =>
+                    setField('sales.partners', [
+                      ...(form['sales.partners'] ?? ['Keity', 'Steve']),
+                      '',
+                    ])
+                  }
+                >
+                  + Adicionar
+                </GhostButton>
+              </div>
+            </Field>
+            <Switch
+              label="Comentários nas vendas"
+              checked={form['sales.commentsEnabled']}
+              onChange={(v) => setField('sales.commentsEnabled', v)}
+            />
+            <div className="flex flex-wrap gap-2 pt-1">
+              <GhostButton type="button" className="!py-1.5 text-xs" onClick={() => navigate('/financeiro')}>
+                Financeiro
+              </GhostButton>
+              <GhostButton type="button" className="!py-1.5 text-xs" onClick={() => navigate('/patio')}>
+                Pátio
               </GhostButton>
             </div>
-          </Field>
-          <Switch
-            label="Comentários nas vendas"
-            hint="Permite anotar observações depois de finalizar."
-            checked={form['sales.commentsEnabled']}
-            onChange={(v) => setField('sales.commentsEnabled', v)}
-          />
-        </Section>
+          </Section>
+        </div>
+      )}
 
-        <Section
-          title="Financeiro (em breve)"
-          hint="Contas a pagar e a receber — estrutura futura. Hoje use o resumo do dia na aba Financeiro."
-        >
-          <p className="text-sm text-ink-300">
-            Compra no caixa vira estoque. Lucro só aparece na venda.
-          </p>
-        </Section>
+      {tab === 'banco' && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Section
+            title="PostgreSQL (central)"
+            hint="Preencha uma vez. O app sincroniza direto com o banco — sem API separada."
+          >
+            <Field label="IP ou host">
+              <input
+                className={fieldClass}
+                value={db.host}
+                onChange={(e) => setDbField('host', e.target.value)}
+                placeholder="ex.: db.seudominio.com"
+              />
+            </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Porta">
+                <input
+                  className={fieldClass}
+                  inputMode="numeric"
+                  value={String(db.port)}
+                  onChange={(e) => setDbField('port', Number(e.target.value) || 5432)}
+                />
+              </Field>
+              <Field label="Database">
+                <input
+                  className={fieldClass}
+                  value={db.database}
+                  onChange={(e) => setDbField('database', e.target.value)}
+                  placeholder="bufalo_gestor"
+                />
+              </Field>
+            </div>
+            <Field label="Usuário">
+              <input
+                className={fieldClass}
+                value={db.user}
+                onChange={(e) => setDbField('user', e.target.value)}
+                placeholder="bufalo_app"
+                autoComplete="off"
+              />
+            </Field>
+            <Field label="Senha">
+              <input
+                className={fieldClass}
+                type="password"
+                value={db.password}
+                onChange={(e) => setDbField('password', e.target.value)}
+                autoComplete="new-password"
+              />
+            </Field>
+            <Field label="Nome deste PC">
+              <input
+                className={fieldClass}
+                value={db.deviceName ?? 'Escritório'}
+                onChange={(e) => setDbField('deviceName', e.target.value)}
+                placeholder="Escritório"
+              />
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              <PrimaryButton
+                type="button"
+                disabled={dbBusy === 'pg'}
+                onClick={() => void testPg()}
+              >
+                {dbBusy === 'pg' ? 'Testando…' : 'Testar PostgreSQL'}
+              </PrimaryButton>
+              <PrimaryButton type="button" disabled={dbSaving} onClick={() => void saveDb()}>
+                {dbSaving ? 'Salvando…' : 'Testar e salvar'}
+              </PrimaryButton>
+            </div>
+          </Section>
 
-        <Section title="Impressão" hint="Formato dos comprovantes em PDF.">
-          <Field label="Papel">
-            <select
-              className={fieldClass}
-              value={form['print.paper']}
-              onChange={(e) => setField('print.paper', e.target.value)}
-            >
-              <option value="A4">A4</option>
-              <option value="A5">A5</option>
-            </select>
-          </Field>
-          <Field label="Mensagem de rodapé">
-            <input
-              className={fieldClass}
-              value={form['print.footerMessage']}
-              onChange={(e) => setField('print.footerMessage', e.target.value)}
-            />
-          </Field>
-          <Switch
-            label="Mostrar QR Code no PDF"
-            checked={form['print.showQrCode']}
-            onChange={(v) => setField('print.showQrCode', v)}
-          />
-        </Section>
+          <Section
+            title="Sincronização"
+            hint="O app abre offline. Com o banco salvo, a fila sobe sozinha."
+          >
+            <Field label="Intervalo de sync automático (minutos)">
+              <input
+                className={fieldClass}
+                inputMode="numeric"
+                value={String(form['sync.autoIntervalMinutes'])}
+                onChange={(e) =>
+                  setField('sync.autoIntervalMinutes', Number(e.target.value) || 1)
+                }
+              />
+            </Field>
+            <label className="flex items-center gap-2 text-sm text-ink-200">
+              <input
+                type="checkbox"
+                checked={form['sync.preferLocal'] !== false}
+                onChange={(e) => setField('sync.preferLocal', e.target.checked)}
+              />
+              Priorizar este PC na sync (local-first)
+            </label>
+            <GhostButton type="button" onClick={() => navigate('/sincronizacao')}>
+              Abrir Central de Sync
+            </GhostButton>
+            <p className="text-xs text-ink-400">
+              Em outro PC: instale, abra e preencha o mesmo PostgreSQL. O histórico
+              é baixado automaticamente.
+            </p>
+          </Section>
 
-        <Section
-          title="Sincronização"
-          hint="Ligação com o servidor central (quando online)."
-        >
-          <Field label="URL da API">
-            <input
-              className={fieldClass}
-              value={form['sync.apiBaseUrl']}
-              onChange={(e) => setField('sync.apiBaseUrl', e.target.value)}
-            />
-          </Field>
-          <Field label="Intervalo de sync automático (minutos)">
-            <input
-              className={fieldClass}
-              inputMode="numeric"
-              value={String(form['sync.autoIntervalMinutes'])}
-              onChange={(e) =>
-                setField('sync.autoIntervalMinutes', Number(e.target.value) || 1)
-              }
-            />
-          </Field>
-        </Section>
-
-        <Section
-          title="Aplicativo"
-          hint="Informações locais, atualização e backup."
-        >
-          <div className="rounded-lg border border-white/10 bg-ink-900/40 px-3 py-3 text-sm">
-            <p>
-              <span className="text-ink-300">Nome:</span> {appInfo?.name}
-            </p>
-            <p className="mt-1">
-              <span className="text-ink-300">Versão:</span> {appInfo?.version}
-            </p>
-            <p className="mt-1 text-xs text-moss-400">
-              0.1.3 — corrigiu tela vazia do instalador + WhatsApp nos PDFs.
-            </p>
-            <p className="mt-1 break-all">
-              <span className="text-ink-300">SQLite:</span> {appInfo?.dbPath ?? '—'}
-            </p>
-          </div>
-          {updateMsg && (
-            <p
-              className={`rounded-lg border px-3 py-2 text-sm ${
-                updatePhase === 'error'
+          {dbMsg && (
+            <div
+              className={`lg:col-span-2 rounded-lg border px-3 py-2 text-sm ${
+                dbMsgTone === 'err'
                   ? 'border-red-500/40 bg-red-950/40 text-red-200'
                   : 'border-moss-500/30 bg-moss-700/20 text-moss-300'
               }`}
             >
-              {updateMsg}
-              {updatePhase === 'downloading' && downloadPct != null
-                ? ` (${downloadPct}%)`
-                : ''}
-            </p>
+              {dbMsg}
+            </div>
           )}
-          <div className="flex flex-wrap gap-2">
-            <PrimaryButton type="button" onClick={checkUpdates}>
-              Verificar atualizações
+        </div>
+      )}
+
+      {tab === 'dados' && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Section
+            title="Transferir (pendrive)"
+            hint="Exporta/importa o pacote completo entre PCs sem depender da internet."
+          >
+            <ol className="list-decimal space-y-0.5 pl-4 text-xs text-ink-300">
+              <li>Exportar → salve o .bfgpack no pendrive.</li>
+              <li>No outro PC: Importar → digite IMPORTAR.</li>
+            </ol>
+            <PrimaryButton
+              type="button"
+              disabled={packBusy != null}
+              onClick={runExportPack}
+            >
+              {packBusy === 'export' ? 'Exportando…' : 'Exportar dados'}
             </PrimaryButton>
-            {updatePhase === 'available' && (
-              <PrimaryButton
-                type="button"
-                onClick={() => {
-                  setUpdatePhase('downloading');
-                  setUpdateMsg('Iniciando download…');
-                  void window.ferrogestor?.downloadUpdate();
-                }}
+            <Field label='Digite IMPORTAR para habilitar'>
+              <input
+                className={fieldClass}
+                value={importConfirm}
+                onChange={(e) => setImportConfirm(e.target.value)}
+                placeholder="IMPORTAR"
+                autoComplete="off"
+                disabled={packBusy != null}
+              />
+            </Field>
+            <button
+              type="button"
+              disabled={
+                packBusy != null ||
+                importConfirm.trim().toUpperCase() !== 'IMPORTAR'
+              }
+              className="rounded-lg border border-red-500/50 bg-red-900/50 px-4 py-2.5 text-sm font-semibold text-red-100 transition hover:bg-red-800/60 disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={runImportPack}
+            >
+              {packBusy === 'import' ? 'Importando…' : 'Importar dados…'}
+            </button>
+            {packMsg && (
+              <p
+                className={`whitespace-pre-wrap rounded-lg border px-3 py-2 text-sm ${
+                  packMsgTone === 'err'
+                    ? 'border-red-500/40 bg-red-950/40 text-red-200'
+                    : 'border-moss-500/30 bg-moss-700/20 text-moss-300'
+                }`}
               >
-                Baixar update
-              </PrimaryButton>
+                {packMsg}
+              </p>
             )}
-            {updatePhase === 'ready' && (
-              <PrimaryButton
-                type="button"
-                onClick={() => void window.ferrogestor?.installUpdate()}
-              >
-                Instalar e reiniciar
-              </PrimaryButton>
+          </Section>
+
+          <Section
+            title="Zerar dados locais"
+            hint="Com PostgreSQL online: arquiva o período, renomeia o PC antigo (ex. Escritório_01) e limpa o local. O histórico fica em Dados antigos."
+          >
+            <p className="text-[11px] text-ink-400">
+              Use quando quiser começar limpo neste PC. Compras/vendas/caixa
+              antigos continuam no servidor e podem ser consultados na aba{' '}
+              <strong className="text-ink-200">Dados antigos</strong> (só
+              leitura + PDF).
+            </p>
+            <Switch
+              label="Manter configurações da empresa"
+              checked={preserveSettingsOnWipe}
+              onChange={setPreserveSettingsOnWipe}
+            />
+            <Field label='Digite ZERAR para confirmar'>
+              <input
+                className={fieldClass}
+                value={wipeConfirm}
+                onChange={(e) => setWipeConfirm(e.target.value)}
+                placeholder="ZERAR"
+                autoComplete="off"
+                disabled={wiping}
+              />
+            </Field>
+            {wipeMsg && (
+              <p className="rounded-lg border border-white/10 bg-ink-900/50 px-3 py-2 text-sm text-ink-100">
+                {wipeMsg}
+              </p>
             )}
             <button
               type="button"
-              className="rounded-lg border border-white/15 bg-ink-900/60 px-4 py-2.5 text-sm font-medium text-ink-50 transition hover:border-brand-400/50"
-              onClick={() => void window.ferrogestor?.createBackup('manual')}
+              disabled={wiping || wipeConfirm.trim().toUpperCase() !== 'ZERAR'}
+              className="rounded-lg border border-red-500/50 bg-red-900/50 px-4 py-2.5 text-sm font-semibold text-red-100 transition hover:bg-red-800/60 disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={runWipe}
             >
-              Backup manual
+              {wiping ? 'Zerando…' : 'Zerar todos os dados locais'}
             </button>
-          </div>
-        </Section>
-      </div>
+          </Section>
+        </div>
+      )}
 
-      <div className="mt-6 flex justify-end">
-        <PrimaryButton onClick={save} disabled={saving}>
-          {saving ? 'Salvando…' : 'Salvar tudo'}
-        </PrimaryButton>
-      </div>
+      {tab === 'sistema' && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Section
+            title="Tela / escala"
+            hint="Em monitores pequenos reduz a interface."
+          >
+            <Field label="Modo">
+              <select
+                className={fieldClass}
+                value={form['ui.scaleMode']}
+                onChange={(e) =>
+                  setField(
+                    'ui.scaleMode',
+                    e.target.value === 'manual' ? 'manual' : 'auto',
+                  )
+                }
+              >
+                <option value="auto">Automático (recomendado)</option>
+                <option value="manual">Manual</option>
+              </select>
+            </Field>
+            <Field label="Escala">
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="range"
+                  min={70}
+                  max={125}
+                  step={5}
+                  disabled={form['ui.scaleMode'] === 'auto'}
+                  className="min-w-[12rem] flex-1 accent-brand-500 disabled:opacity-40"
+                  value={Math.round(form['ui.scale'] * 100)}
+                  onChange={(e) => setField('ui.scale', Number(e.target.value) / 100)}
+                />
+                <span className="w-12 text-sm font-medium text-ink-50">
+                  {Math.round(form['ui.scale'] * 100)}%
+                </span>
+              </div>
+            </Field>
+          </Section>
+
+          <Section title="Aplicativo" hint="Versão, atualização e backup técnico.">
+            <div className="rounded-lg border border-white/10 bg-ink-900/40 px-3 py-3 text-sm">
+              <p>
+                <span className="text-ink-300">Nome:</span> {appInfo?.name}
+              </p>
+              <p className="mt-1">
+                <span className="text-ink-300">Versão:</span> {appInfo?.version}
+              </p>
+              <p className="mt-1 break-all text-xs">
+                <span className="text-ink-300">SQLite:</span> {appInfo?.dbPath ?? '—'}
+              </p>
+            </div>
+            {updateMsg && (
+              <p
+                className={`rounded-lg border px-3 py-2 text-sm ${
+                  updatePhase === 'error'
+                    ? 'border-red-500/40 bg-red-950/40 text-red-200'
+                    : 'border-moss-500/30 bg-moss-700/20 text-moss-300'
+                }`}
+              >
+                {updateMsg}
+                {updatePhase === 'downloading' && downloadPct != null
+                  ? ` (${downloadPct}%)`
+                  : ''}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <PrimaryButton type="button" onClick={checkUpdates}>
+                Verificar atualizações
+              </PrimaryButton>
+              {updatePhase === 'available' && (
+                <PrimaryButton
+                  type="button"
+                  onClick={() => {
+                    setUpdatePhase('downloading');
+                    setUpdateMsg('Iniciando download…');
+                    void window.ferrogestor?.downloadUpdate();
+                  }}
+                >
+                  Baixar update
+                </PrimaryButton>
+              )}
+              {updatePhase === 'ready' && (
+                <PrimaryButton
+                  type="button"
+                  onClick={() => void window.ferrogestor?.installUpdate()}
+                >
+                  Instalar e reiniciar
+                </PrimaryButton>
+              )}
+              <GhostButton
+                type="button"
+                onClick={() => void window.ferrogestor?.createBackup('manual')}
+              >
+                Backup manual
+              </GhostButton>
+            </div>
+          </Section>
+        </div>
+      )}
     </div>
   );
 }
