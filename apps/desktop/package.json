@@ -3,7 +3,7 @@
   "version": "0.1.28",
   "main": "dist-electron/main.js",
   "private": true,
-  "description": "Búfalo Sucata Gestor — Bufalo Sucatas",
+  "description": "BÃºfalo Sucata Gestor â€” Bufalo Sucatas",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.electron.json --noEmit && vite build && node scripts/stage-central-db.mjs",
@@ -55,7 +55,10 @@
   "build": {
     "appId": "br.com.bufalosucatas.gestor",
     "productName": "Bufalo Sucata Gestor",
-    "copyright": "Copyright © Bufalo Sucatas",
+    "copyright": "Copyright Â© Bufalo Sucatas",
+    "extraMetadata": {
+      "name": "bufalo-sucata-gestor"
+    },
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -76,10 +79,13 @@
     ],
     "win": {
       "target": [
-        "nsis"
+        "nsis",
+        "zip"
       ],
       "icon": "build/icon.png",
-      "artifactName": "BufaloSucataGestor-Setup-${version}.${ext}"
+      "artifactName": "BufaloSucataGestor-Setup-${version}.${ext}",
+      "sign": null,
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,

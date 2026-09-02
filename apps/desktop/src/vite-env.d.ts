@@ -24,6 +24,9 @@ type FerroGestorApi = {
     company: string;
     isPackaged: boolean;
     dbPath: string;
+    dataPath: string;
+    userDataDir: string;
+    backupDir: string;
   }>;
   getSyncSnapshot: () => Promise<unknown>;
   runSyncNow: (opts?: {
@@ -79,6 +82,13 @@ type FerroGestorApi = {
   }) => Promise<{ ok: true } | { ok: false; error: string }>;
   createBackup: (reason?: string) => Promise<unknown>;
   listBackups: () => Promise<unknown>;
+  loadDataStore: () => Promise<{ data: Record<string, unknown>; stats: unknown }>;
+  persistData: (partial: Record<string, unknown>) => Promise<{ ok: boolean }>;
+  importAllData: (data: Record<string, unknown>) => Promise<{ ok: boolean; stats: unknown }>;
+  runDataDiagnostic: () => Promise<DataDiagnostic>;
+  restoreDataFile: (filePath: string) => Promise<{ ok: boolean; data: Record<string, unknown> }>;
+  backupDataNow: () => Promise<{ ok: boolean; path: string | null }>;
+  openDataFolder: (which: 'userData' | 'data' | 'backups') => Promise<{ ok: boolean; path: string }>;
   checkForUpdates: () => Promise<unknown>;
   downloadUpdate: () => Promise<unknown>;
   installUpdate: () => Promise<unknown>;
@@ -90,6 +100,13 @@ type FerroGestorApi = {
   }) => Promise<{ photoPath: string; fullPath: string }>;
   getMaterialPhotoDataUrl: (photoPath: string) => Promise<string | null>;
   deleteMaterialPhoto: (photoPath: string) => Promise<boolean>;
+  savePartnerPhoto: (payload: {
+    partnerName: string;
+    base64: string;
+    ext: string;
+  }) => Promise<{ photoPath: string; fullPath: string }>;
+  getPartnerPhotoDataUrl: (photoPath: string) => Promise<string | null>;
+  deletePartnerPhoto: (photoPath: string) => Promise<boolean>;
   sharePdfWhatsApp: (payload: {
     fileName: string;
     base64: string;

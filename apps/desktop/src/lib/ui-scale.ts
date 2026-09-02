@@ -95,7 +95,7 @@ export function applyUiScale(factor: number): number {
     api.setZoomFactor(s);
   } else {
     // Dev no browser sem Electron: compensa o clip do CSS zoom
-    html.style.zoom = String(s);
+    (html.style as CSSStyleDeclaration & { zoom?: string }).zoom = String(s);
     if (Math.abs(s - 1) < 0.001) {
       html.style.removeProperty('width');
       html.style.removeProperty('height');

@@ -20,7 +20,7 @@ export function SyncCenterPage() {
   const connectSyncServer = useAppStore((s) => s.connectSyncServer);
   const importFromDevice = useAppStore((s) => s.importFromDevice);
 
-  const [deviceName, setDeviceName] = useState('Escritório');
+  const [deviceName, setDeviceName] = useState('EscritÃ³rio');
   const [preferLocal, setPreferLocal] = useState(
     () => getSettings()['sync.preferLocal'] !== false,
   );
@@ -119,7 +119,7 @@ export function SyncCenterPage() {
     }
     if (
       !window.confirm(
-        'Importar dados desse PC para este? Itens locais mais novos não são sobrescritos. Configurações deste PC não mudam.',
+        'Importar dados desse PC para este? Itens locais mais novos nÃ£o sÃ£o sobrescritos. ConfiguraÃ§Ãµes deste PC nÃ£o mudam.',
       )
     ) {
       return;
@@ -138,7 +138,7 @@ export function SyncCenterPage() {
         return;
       }
       setMsg(
-        `Importação ok: ${r.applied} aplicados, ${r.skipped} ignorados (de ${r.count} no servidor). A tela continua respondendo.`,
+        `ImportaÃ§Ã£o ok: ${r.applied} aplicados, ${r.skipped} ignorados (de ${r.count} no servidor). A tela continua respondendo.`,
       );
     });
   };
@@ -146,8 +146,8 @@ export function SyncCenterPage() {
   return (
     <div>
       <PageHeader
-        title="Central de Sincronização"
-        subtitle="A fila sobe aos poucos sozinha. Prioridade local mantém este PC como fonte da verdade."
+        title="Central de SincronizaÃ§Ã£o"
+        subtitle="A fila sobe aos poucos sozinha. Prioridade local mantÃ©m este PC como fonte da verdade."
         actions={
           <div className="flex gap-2">
             <button
@@ -163,14 +163,14 @@ export function SyncCenterPage() {
               disabled={syncBusy}
               className="rounded-md bg-brand-500 px-4 py-2 text-sm font-semibold text-ink-950 hover:bg-brand-400 disabled:opacity-50"
             >
-              {syncBusy ? 'Sincronizando…' : 'Sincronizar agora'}
+              {syncBusy ? 'Sincronizandoâ€¦' : 'Sincronizar agora'}
             </button>
             <button
               type="button"
               onClick={exportDiag}
               className="rounded-md border border-white/15 px-4 py-2 text-sm text-ink-100 hover:border-brand-400/40"
             >
-              Exportar diagnóstico
+              Exportar diagnÃ³stico
             </button>
           </div>
         }
@@ -180,7 +180,7 @@ export function SyncCenterPage() {
         <PlaceholderCard className="mb-4 border-brand-500/40">
           <p className="text-sm font-medium text-brand-300">
             {syncProgress?.label ??
-              (importPct != null ? `Importando… ${importPct}%` : 'Processando…')}
+              (importPct != null ? `Importandoâ€¦ ${importPct}%` : 'Processandoâ€¦')}
           </p>
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-ink-950">
             <div
@@ -211,16 +211,16 @@ export function SyncCenterPage() {
         <p className="mt-1 text-xs text-ink-400">
           Host e senha ficam em{' '}
           <Link to="/configuracoes" className="text-brand-300 underline">
-            Configurações → Banco online
+            ConfiguraÃ§Ãµes â†’ Banco online
           </Link>
-          . Não precisa instalar API separada.
+          . NÃ£o precisa instalar API separada.
         </p>
         {authStatus?.pgHost ? (
           <p className="mt-2 font-mono text-sm text-ink-100">
             {authStatus.pgHost}/{authStatus.pgDatabase}
           </p>
         ) : (
-          <p className="mt-2 text-sm text-ink-400">PostgreSQL ainda não configurado.</p>
+          <p className="mt-2 text-sm text-ink-400">PostgreSQL ainda nÃ£o configurado.</p>
         )}
         {authStatus?.configured && (
           <p className="mt-2 text-sm text-moss-400">
@@ -228,11 +228,11 @@ export function SyncCenterPage() {
             {authStatus.companyName ? (
               <>
                 {' '}
-                · <strong>{authStatus.companyName}</strong>
+                Â· <strong>{authStatus.companyName}</strong>
               </>
             ) : null}
-            {authStatus.username ? <> · {authStatus.username}</> : null} · device{' '}
-            {authStatus.deviceId.slice(0, 8)}…
+            {authStatus.username ? <> Â· {authStatus.username}</> : null} Â· device{' '}
+            {authStatus.deviceId.slice(0, 8)}â€¦
           </p>
         )}
         {err && (
@@ -260,11 +260,11 @@ export function SyncCenterPage() {
             checked={preferLocal}
             onChange={(e) => togglePreferLocal(e.target.checked)}
           />
-          Priorizar este PC (reenvia em conflito com versão maior)
+          Priorizar este PC (reenvia em conflito com versÃ£o maior)
         </label>
         <div className="mt-3">
           <PrimaryButton type="button" onClick={connect} disabled={connecting}>
-            {connecting ? 'Conectando…' : 'Conectar / registrar PC'}
+            {connecting ? 'Conectandoâ€¦' : 'Conectar / registrar PC'}
           </PrimaryButton>
         </div>
       </PlaceholderCard>
@@ -272,8 +272,8 @@ export function SyncCenterPage() {
       <PlaceholderCard className="mb-4">
         <h2 className="font-semibold text-ink-50">Importar de outro PC</h2>
         <p className="mt-1 text-xs text-ink-400">
-          Se outro computador usa o mesmo banco, puxe os dados dele para cá.
-          Registros locais mais novos não são sobrescritos.
+          Se outro computador usa o mesmo banco, puxe os dados dele para cÃ¡.
+          Registros locais mais novos nÃ£o sÃ£o sobrescritos.
         </p>
         <div className="mt-3 flex flex-wrap items-end gap-2">
           <Field label="Dispositivo">
@@ -282,7 +282,7 @@ export function SyncCenterPage() {
               value={importDeviceId}
               onChange={(e) => setImportDeviceId(e.target.value)}
             >
-              <option value="">Selecione…</option>
+              <option value="">Selecioneâ€¦</option>
               {peerDevices.map((d) => (
                 <option key={d.deviceId} value={d.deviceId}>
                   {d.deviceName} ({d.entityCount} regs)
@@ -299,7 +299,7 @@ export function SyncCenterPage() {
             onClick={doImport}
           >
             {syncBusy && importPct != null
-              ? `Importando… ${importPct}%`
+              ? `Importandoâ€¦ ${importPct}%`
               : 'Importar / mesclar'}
           </PrimaryButton>
         </div>
@@ -307,7 +307,7 @@ export function SyncCenterPage() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <PlaceholderCard>
-          <p className="text-sm text-ink-300">Conexão</p>
+          <p className="text-sm text-ink-300">ConexÃ£o</p>
           <p className="mt-1 text-xl font-semibold">
             {sync.online === null
               ? 'Desconhecido'
@@ -317,7 +317,7 @@ export function SyncCenterPage() {
           </p>
         </PlaceholderCard>
         <PlaceholderCard>
-          <p className="text-sm text-ink-300">Última sincronização</p>
+          <p className="text-sm text-ink-300">Ãšltima sincronizaÃ§Ã£o</p>
           <p className="mt-1 text-sm">
             {sync.lastSyncAt
               ? new Date(sync.lastSyncAt).toLocaleString('pt-BR')
@@ -343,11 +343,11 @@ export function SyncCenterPage() {
       )}
 
       <div className="mt-6">
-        <h2 className="mb-2 font-display text-2xl">Histórico recente</h2>
+        <h2 className="mb-2 font-display text-2xl">HistÃ³rico recente</h2>
         <PlaceholderCard>
           {sync.history.length === 0 ? (
             <p className="text-sm text-ink-300">
-              Nenhuma sincronização registrada ainda.
+              Nenhuma sincronizaÃ§Ã£o registrada ainda.
             </p>
           ) : (
             <ul className="space-y-2 text-sm">

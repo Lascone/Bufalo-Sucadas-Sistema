@@ -16,6 +16,9 @@ export type FerroGestorApi = {
     company: string;
     isPackaged: boolean;
     dbPath: string;
+    dataPath: string;
+    userDataDir: string;
+    backupDir: string;
   }>;
   getSyncSnapshot: () => Promise<unknown>;
   runSyncNow: (opts?: {
@@ -71,6 +74,13 @@ export type FerroGestorApi = {
   }) => Promise<{ ok: true } | { ok: false; error: string }>;
   createBackup: (reason?: string) => Promise<unknown>;
   listBackups: () => Promise<unknown>;
+  loadDataStore: () => Promise<{ data: Record<string, unknown>; stats: unknown }>;
+  persistData: (partial: Record<string, unknown>) => Promise<{ ok: boolean }>;
+  importAllData: (data: Record<string, unknown>) => Promise<{ ok: boolean; stats: unknown }>;
+  runDataDiagnostic: () => Promise<unknown>;
+  restoreDataFile: (filePath: string) => Promise<{ ok: boolean; data: Record<string, unknown> }>;
+  backupDataNow: () => Promise<{ ok: boolean; path: string | null }>;
+  openDataFolder: (which: 'userData' | 'data' | 'backups') => Promise<{ ok: boolean; path: string }>;
   checkForUpdates: () => Promise<unknown>;
   downloadUpdate: () => Promise<unknown>;
   installUpdate: () => Promise<unknown>;
@@ -82,6 +92,13 @@ export type FerroGestorApi = {
   }) => Promise<{ photoPath: string; fullPath: string }>;
   getMaterialPhotoDataUrl: (photoPath: string) => Promise<string | null>;
   deleteMaterialPhoto: (photoPath: string) => Promise<boolean>;
+  savePartnerPhoto: (payload: {
+    partnerName: string;
+    base64: string;
+    ext: string;
+  }) => Promise<{ photoPath: string; fullPath: string }>;
+  getPartnerPhotoDataUrl: (photoPath: string) => Promise<string | null>;
+  deletePartnerPhoto: (photoPath: string) => Promise<boolean>;
   sharePdfWhatsApp: (payload: {
     fileName: string;
     base64: string;
@@ -220,6 +237,13 @@ const api: FerroGestorApi = {
     ipcRenderer.invoke('sync:resolveConflict', payload),
   createBackup: (reason) => ipcRenderer.invoke('backup:create', reason),
   listBackups: () => ipcRenderer.invoke('backup:list'),
+  loadDataStore: () => ipcRenderer.invoke('data:load'),
+  persistData: (partial) => ipcRenderer.invoke('data:persist', partial),
+  importAllData: (data) => ipcRenderer.invoke('data:importAll', data),
+  runDataDiagnostic: () => ipcRenderer.invoke('data:diagnose'),
+  restoreDataFile: (filePath) => ipcRenderer.invoke('data:restoreFile', filePath),
+  backupDataNow: () => ipcRenderer.invoke('data:backupNow'),
+  openDataFolder: (which) => ipcRenderer.invoke('data:openFolder', which),
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),
   downloadUpdate: () => ipcRenderer.invoke('updater:download'),
   installUpdate: () => ipcRenderer.invoke('updater:install'),
@@ -233,6 +257,11 @@ const api: FerroGestorApi = {
     ipcRenderer.invoke('media:getMaterialPhotoDataUrl', photoPath),
   deleteMaterialPhoto: (photoPath) =>
     ipcRenderer.invoke('media:deleteMaterialPhoto', photoPath),
+  savePartnerPhoto: (payload) => ipcRenderer.invoke('media:savePartnerPhoto', payload),
+  getPartnerPhotoDataUrl: (photoPath) =>
+    ipcRenderer.invoke('media:getPartnerPhotoDataUrl', photoPath),
+  deletePartnerPhoto: (photoPath) =>
+    ipcRenderer.invoke('media:deletePartnerPhoto', photoPath),
   sharePdfWhatsApp: (payload) => ipcRenderer.invoke('share:pdfWhatsApp', payload),
   wipeUserData: (opts) => ipcRenderer.invoke('data:wipeLocal', opts),
   archiveRotateOnWipe: (payload) =>

@@ -38,7 +38,6 @@ export function StatusFooter() {
   const syncBusy = useAppStore((s) => s.syncBusy);
   const syncProgress = useAppStore((s) => s.syncProgress);
   const session = useAppStore((s) => s.session);
-
   const clearOperator = useAppStore((s) => s.clearOperator);
 
   const op = getOperator(session.operatorId);
@@ -95,7 +94,7 @@ export function StatusFooter() {
 
         )}
 
-        Usuário: <strong className="text-ink-50">{session.username || '—'}</strong>
+        UsuÃ¡rio: <strong className="text-ink-50">{session.username || 'â€”'}</strong>
 
         <button
 
@@ -105,7 +104,7 @@ export function StatusFooter() {
 
           onClick={() => clearOperator()}
 
-          title="Voltar à tela de escolha de usuário"
+          title="Voltar Ã  tela de escolha de usuÃ¡rio"
 
         >
 
@@ -129,14 +128,14 @@ export function StatusFooter() {
 
       >
 
-        {sync.online === null ? 'Conexão: —' : sync.online ? 'Online' : 'Offline'}
+        {sync.online === null ? 'ConexÃ£o: â€”' : sync.online ? 'Online' : 'Offline'}
 
       </span>
 
       <span>Pendentes: {sync.pendingCount}</span>
       {syncBusy && (
         <span className="font-medium text-brand-400">
-          {syncProgress?.label ?? 'Sync…'}
+          {syncProgress?.label ?? 'Syncâ€¦'}
           {syncProgress && syncProgress.total > 0
             ? ` ${Math.round((syncProgress.done / Math.max(1, syncProgress.total)) * 100)}%`
             : ''}
@@ -145,7 +144,7 @@ export function StatusFooter() {
 
       <span
         className="inline-flex items-center gap-1 rounded border border-white/10 bg-ink-900/60 px-1 py-0.5"
-        title="Escala da tela — menor em monitores pequenos para não esconder botões"
+        title="Escala da tela â€” menor em monitores pequenos para nÃ£o esconder botÃµes"
       >
 
         <button
@@ -178,7 +177,7 @@ export function StatusFooter() {
 
               ? 'Clique para fixar escala manual'
 
-              : 'Clique para voltar ao ajuste automático'
+              : 'Clique para voltar ao ajuste automÃ¡tico'
 
           }
 

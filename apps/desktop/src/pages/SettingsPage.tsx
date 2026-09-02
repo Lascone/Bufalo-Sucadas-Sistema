@@ -11,6 +11,7 @@ import {
 import { getSettings, updateSettings, type AppSettings } from '../lib/settings';
 import { wipeLocalData } from '../lib/wipe-local-data';
 import { exportDataPack, importDataPack } from '../lib/data-pack';
+import { importFromLocalStorage, reloadFromDisk } from '../lib/local-store';
 import { EMPTY_CENTRAL_CONNECTION, type CentralConnectionConfig } from '../lib/central-config';
 import { useAppStore } from '../stores/app-store';
 import { syncUiScaleFromSettings } from '../lib/ui-scale';
@@ -19,7 +20,7 @@ type TabId = 'empresa' | 'operacao' | 'banco' | 'dados' | 'sistema';
 
 const TABS: Array<{ id: TabId; label: string }> = [
   { id: 'empresa', label: 'Empresa' },
-  { id: 'operacao', label: 'Operação' },
+  { id: 'operacao', label: 'OperaÃ§Ã£o' },
   { id: 'banco', label: 'Banco online' },
   { id: 'dados', label: 'Dados' },
   { id: 'sistema', label: 'Sistema' },
@@ -98,6 +99,21 @@ export function SettingsPage() {
   const [packMsg, setPackMsg] = useState<string | null>(null);
   const [packMsgTone, setPackMsgTone] = useState<'ok' | 'err'>('ok');
   const [importConfirm, setImportConfirm] = useState('');
+  const [recoverMsg, setRecoverMsg] = useState<string | null>(null);
+  const [recoverBusy, setRecoverBusy] = useState(false);
+  const [dataDiag, setDataDiag] = useState<{
+    currentStats: { total: number };
+    warnings: string[];
+    candidates: Array<{
+      id: string;
+      label: string;
+      path: string;
+      totalRecords: number;
+      hint: string;
+    }>;
+    backupDir: string;
+    dataBackups: Array<{ name: string; path: string; totalRecords: number }>;
+  } | null>(null);
   const [db, setDb] = useState<CentralConnectionConfig>({ ...EMPTY_CENTRAL_CONNECTION });
   const [dbSaving, setDbSaving] = useState(false);
   const [dbMsg, setDbMsg] = useState<string | null>(null);
@@ -121,11 +137,11 @@ export function SettingsPage() {
             ? String((info as { version: string }).version)
             : '';
         setUpdatePhase('available');
-        setUpdateMsg(v ? `Nova versão ${v} disponível.` : 'Nova versão disponível.');
+        setUpdateMsg(v ? `Nova versÃ£o ${v} disponÃ­vel.` : 'Nova versÃ£o disponÃ­vel.');
       }),
       api.onUpdaterEvent('updater:not-available', () => {
         setUpdatePhase('not-available');
-        setUpdateMsg('Você já está na versão mais recente.');
+        setUpdateMsg('VocÃª jÃ¡ estÃ¡ na versÃ£o mais recente.');
       }),
       api.onUpdaterEvent('updater:progress', (p) => {
         setUpdatePhase('downloading');
@@ -134,7 +150,7 @@ export function SettingsPage() {
             ? Number((p as { percent: number }).percent)
             : 0;
         setDownloadPct(Math.round(pct));
-        setUpdateMsg(`Baixando… ${Math.round(pct)}%`);
+        setUpdateMsg(`Baixandoâ€¦ ${Math.round(pct)}%`);
       }),
       api.onUpdaterEvent('updater:downloaded', (info) => {
         const v =
@@ -144,7 +160,7 @@ export function SettingsPage() {
         setUpdatePhase('ready');
         setUpdateMsg(
           v
-            ? `Versão ${v} baixada. Clique em Instalar e reiniciar.`
+            ? `VersÃ£o ${v} baixada. Clique em Instalar e reiniciar.`
             : 'Update baixado. Clique em Instalar e reiniciar.',
         );
       }),
@@ -183,7 +199,7 @@ export function SettingsPage() {
   const saveDb = async () => {
     if (!window.ferrogestor?.saveCentralConnection) {
       setDbMsgTone('err');
-      setDbMsg('Disponível apenas no app Electron.');
+      setDbMsg('DisponÃ­vel apenas no app Electron.');
       return;
     }
     setDbSaving(true);
@@ -191,7 +207,7 @@ export function SettingsPage() {
     try {
       const result = await window.ferrogestor.saveCentralConnection({
         ...db,
-        deviceName: db.deviceName || 'Escritório',
+        deviceName: db.deviceName || 'EscritÃ³rio',
       });
       setDb(result.connection);
       await updateSettings({
@@ -202,7 +218,7 @@ export function SettingsPage() {
       setDbMsg(
         result.connect.ok
           ? 'Salvo e conectado ao PostgreSQL. Este PC foi registrado.'
-          : `Salvo, mas conexão: ${result.connect.error}`,
+          : `Salvo, mas conexÃ£o: ${result.connect.error}`,
       );
     } catch (e) {
       setDbMsgTone('err');
@@ -229,7 +245,7 @@ export function SettingsPage() {
     void wipeLocalData({ preserveSettings: preserveSettingsOnWipe })
       .then((r) => {
         const archiveBit = r.archive
-          ? ` Histórico arquivado como ${r.archive.archivedName} (veja Dados antigos).`
+          ? ` HistÃ³rico arquivado como ${r.archive.archivedName} (veja Dados antigos).`
           : r.archiveOfflineMessage
             ? ` ${r.archiveOfflineMessage}`
             : '';
@@ -240,7 +256,7 @@ export function SettingsPage() {
               : '') +
             ').' +
             archiveBit +
-            ' Reiniciando…',
+            ' Reiniciandoâ€¦',
         );
         clearOperator();
         setTimeout(() => {
@@ -263,7 +279,7 @@ export function SettingsPage() {
         setPackBusy(null);
         if ('cancelled' in r && r.cancelled) {
           setPackMsgTone('ok');
-          setPackMsg('Exportação cancelada.');
+          setPackMsg('ExportaÃ§Ã£o cancelada.');
           return;
         }
         if (!r.ok) {
@@ -273,7 +289,7 @@ export function SettingsPage() {
         }
         setPackMsgTone('ok');
         setPackMsg(
-          `Exportado: ${r.keyCount} tabelas, ${r.mediaCount} arquivo(s) de mídia.\n${r.path}`,
+          `Exportado: ${r.keyCount} tabelas, ${r.mediaCount} arquivo(s) de mÃ­dia.\n${r.path}`,
         );
       })
       .catch((e) => {
@@ -292,7 +308,7 @@ export function SettingsPage() {
         if ('cancelled' in r && r.cancelled) {
           setPackBusy(null);
           setPackMsgTone('ok');
-          setPackMsg('Importação cancelada.');
+          setPackMsg('ImportaÃ§Ã£o cancelada.');
           return;
         }
         if (!r.ok) {
@@ -303,7 +319,7 @@ export function SettingsPage() {
         }
         setPackMsgTone('ok');
         setPackMsg(
-          `Importado: ${r.writtenKeys.length} chaves, ${r.mediaCount} mídia(s). Reiniciando…`,
+          `Importado: ${r.writtenKeys.length} chaves, ${r.mediaCount} mÃ­dia(s). Reiniciandoâ€¦`,
         );
         clearOperator();
         setTimeout(() => {
@@ -319,13 +335,13 @@ export function SettingsPage() {
 
   const checkUpdates = () => {
     setUpdatePhase('checking');
-    setUpdateMsg('Verificando…');
+    setUpdateMsg('Verificandoâ€¦');
     setDownloadPct(null);
     void window.ferrogestor?.checkForUpdates()?.then((res) => {
       if (res && typeof res === 'object' && 'skipped' in res) {
         setUpdatePhase('dev');
         setUpdateMsg(
-          'Modo desenvolvimento: update só funciona no app instalado (.exe), não no pnpm dev.',
+          'Modo desenvolvimento: update sÃ³ funciona no app instalado (.exe), nÃ£o no pnpm dev.',
         );
       }
     });
@@ -334,20 +350,20 @@ export function SettingsPage() {
   return (
     <div>
       <PageHeader
-        title="Configurações"
-        subtitle="Organize por abas. Banco online: só PostgreSQL — o app sincroniza direto, sem API."
+        title="ConfiguraÃ§Ãµes"
+        subtitle="Organize por abas. Banco online: sÃ³ PostgreSQL â€” o app sincroniza direto, sem API."
         actions={
           tab !== 'banco' ? (
             <div className="flex items-center gap-3">
               {saved && <span className="text-sm text-moss-400">Salvo</span>}
               <PrimaryButton onClick={save} disabled={saving}>
-                {saving ? 'Salvando…' : 'Salvar'}
+                {saving ? 'Salvandoâ€¦' : 'Salvar'}
               </PrimaryButton>
             </div>
           ) : (
             <div className="flex items-center gap-3">
               <PrimaryButton onClick={() => void saveDb()} disabled={dbSaving}>
-                {dbSaving ? 'Salvando…' : 'Testar e salvar'}
+                {dbSaving ? 'Salvandoâ€¦' : 'Testar e salvar'}
               </PrimaryButton>
             </div>
           )
@@ -377,7 +393,7 @@ export function SettingsPage() {
             title="Dados da empresa"
             hint="Aparecem nos PDFs de venda e fechamento de caixa."
           >
-            <Field label="Nome de exibição">
+            <Field label="Nome de exibiÃ§Ã£o">
               <input
                 className={fieldClass}
                 value={form['company.displayName']}
@@ -392,7 +408,7 @@ export function SettingsPage() {
                 placeholder="00.000.000/0000-00"
               />
             </Field>
-            <Field label="Endereço">
+            <Field label="EndereÃ§o">
               <input
                 className={fieldClass}
                 value={form['company.address']}
@@ -415,7 +431,7 @@ export function SettingsPage() {
               />
             </Field>
           </Section>
-          <Section title="Impressão" hint="Formato dos comprovantes em PDF.">
+          <Section title="ImpressÃ£o" hint="Formato dos comprovantes em PDF.">
             <Field label="Papel">
               <select
                 className={fieldClass}
@@ -426,7 +442,7 @@ export function SettingsPage() {
                 <option value="A5">A5</option>
               </select>
             </Field>
-            <Field label="Mensagem de rodapé">
+            <Field label="Mensagem de rodapÃ©">
               <input
                 className={fieldClass}
                 value={form['print.footerMessage']}
@@ -446,7 +462,7 @@ export function SettingsPage() {
         <div className="grid gap-4 lg:grid-cols-2">
           <Section
             title="Caixa do dia"
-            hint="Abertura/fechamento automático ou manual, saldo padrão e regras."
+            hint="Abertura/fechamento automÃ¡tico ou manual, saldo padrÃ£o e regras."
           >
             <Field label="Abertura do caixa">
               <select
@@ -460,10 +476,10 @@ export function SettingsPage() {
                 }
               >
                 <option value="manual">
-                  Manual (padrão) — operador abre na tela do Caixa
+                  Manual (padrÃ£o) â€” operador abre na tela do Caixa
                 </option>
                 <option value="auto">
-                  Automática — abre sozinho ao ligar / após fechar o dia
+                  AutomÃ¡tica â€” abre sozinho ao ligar / apÃ³s fechar o dia
                 </option>
               </select>
             </Field>
@@ -479,14 +495,14 @@ export function SettingsPage() {
                 }
               >
                 <option value="auto">
-                  Automático — no horário e ao religar (fecha dia anterior)
+                  AutomÃ¡tico â€” no horÃ¡rio e ao religar (fecha dia anterior)
                 </option>
                 <option value="manual">
-                  Manual — só fecha na tela (ainda fecha dia anterior ao religar)
+                  Manual â€” sÃ³ fecha na tela (ainda fecha dia anterior ao religar)
                 </option>
               </select>
             </Field>
-            <Field label="Saldo inicial padrão (R$)">
+            <Field label="Saldo inicial padrÃ£o (R$)">
               <input
                 className={fieldClass}
                 inputMode="decimal"
@@ -496,7 +512,7 @@ export function SettingsPage() {
                 }
               />
             </Field>
-            <Field label="Horário de fechamento automático">
+            <Field label="HorÃ¡rio de fechamento automÃ¡tico">
               <input
                 className={fieldClass}
                 type="time"
@@ -507,21 +523,21 @@ export function SettingsPage() {
             </Field>
             <p className="text-[11px] text-ink-400">
               Se o PC desligar sem fechar, ao religar o app fecha o caixa do dia
-              anterior (saldo esperado) e, se a abertura for automática, abre o
+              anterior (saldo esperado) e, se a abertura for automÃ¡tica, abre o
               de hoje.
             </p>
             <Switch
-              label="Exigir justificativa se houver diferença"
+              label="Exigir justificativa se houver diferenÃ§a"
               checked={form['cash.requireDifferenceReason']}
               onChange={(v) => setField('cash.requireDifferenceReason', v)}
             />
             <Switch
-              label="Permitir vários caixas abertos"
+              label="Permitir vÃ¡rios caixas abertos"
               checked={form['cash.allowMultipleOpen']}
               onChange={(v) => setField('cash.allowMultipleOpen', v)}
             />
           </Section>
-          <Section title="Recebedores" hint="Sócios que recebem nas vendas. Caixa (trocado no gaveteiro) já vem fixo na tela de Vendas.">
+          <Section title="Recebedores" hint="SÃ³cios que recebem nas vendas. Caixa (trocado no gaveteiro) jÃ¡ vem fixo na tela de Vendas.">
             <Field label="Nomes">
               <div className="grid gap-2">
                 {(form['sales.partners'] ?? ['Keity', 'Steve']).map((name, idx) => (
@@ -570,7 +586,7 @@ export function SettingsPage() {
               </div>
             </Field>
             <Switch
-              label="Comentários nas vendas"
+              label="ComentÃ¡rios nas vendas"
               checked={form['sales.commentsEnabled']}
               onChange={(v) => setField('sales.commentsEnabled', v)}
             />
@@ -579,7 +595,7 @@ export function SettingsPage() {
                 Financeiro
               </GhostButton>
               <GhostButton type="button" className="!py-1.5 text-xs" onClick={() => navigate('/patio')}>
-                Pátio
+                PÃ¡tio
               </GhostButton>
             </div>
           </Section>
@@ -590,7 +606,7 @@ export function SettingsPage() {
         <div className="grid gap-4 lg:grid-cols-2">
           <Section
             title="PostgreSQL (central)"
-            hint="Preencha uma vez. O app sincroniza direto com o banco — sem API separada."
+            hint="Preencha uma vez. O app sincroniza direto com o banco â€” sem API separada."
           >
             <Field label="IP ou host">
               <input
@@ -618,7 +634,7 @@ export function SettingsPage() {
                 />
               </Field>
             </div>
-            <Field label="Usuário">
+            <Field label="UsuÃ¡rio">
               <input
                 className={fieldClass}
                 value={db.user}
@@ -639,9 +655,9 @@ export function SettingsPage() {
             <Field label="Nome deste PC">
               <input
                 className={fieldClass}
-                value={db.deviceName ?? 'Escritório'}
+                value={db.deviceName ?? 'EscritÃ³rio'}
                 onChange={(e) => setDbField('deviceName', e.target.value)}
-                placeholder="Escritório"
+                placeholder="EscritÃ³rio"
               />
             </Field>
             <div className="flex flex-wrap gap-2">
@@ -650,19 +666,19 @@ export function SettingsPage() {
                 disabled={dbBusy === 'pg'}
                 onClick={() => void testPg()}
               >
-                {dbBusy === 'pg' ? 'Testando…' : 'Testar PostgreSQL'}
+                {dbBusy === 'pg' ? 'Testandoâ€¦' : 'Testar PostgreSQL'}
               </PrimaryButton>
               <PrimaryButton type="button" disabled={dbSaving} onClick={() => void saveDb()}>
-                {dbSaving ? 'Salvando…' : 'Testar e salvar'}
+                {dbSaving ? 'Salvandoâ€¦' : 'Testar e salvar'}
               </PrimaryButton>
             </div>
           </Section>
 
           <Section
-            title="Sincronização"
+            title="SincronizaÃ§Ã£o"
             hint="O app abre offline. Com o banco salvo, a fila sobe sozinha."
           >
-            <Field label="Intervalo de sync automático (minutos)">
+            <Field label="Intervalo de sync automÃ¡tico (minutos)">
               <input
                 className={fieldClass}
                 inputMode="numeric"
@@ -684,8 +700,8 @@ export function SettingsPage() {
               Abrir Central de Sync
             </GhostButton>
             <p className="text-xs text-ink-400">
-              Em outro PC: instale, abra e preencha o mesmo PostgreSQL. O histórico
-              é baixado automaticamente.
+              Em outro PC: instale, abra e preencha o mesmo PostgreSQL. O histÃ³rico
+              Ã© baixado automaticamente.
             </p>
           </Section>
 
@@ -710,15 +726,15 @@ export function SettingsPage() {
             hint="Exporta/importa o pacote completo entre PCs sem depender da internet."
           >
             <ol className="list-decimal space-y-0.5 pl-4 text-xs text-ink-300">
-              <li>Exportar → salve o .bfgpack no pendrive.</li>
-              <li>No outro PC: Importar → digite IMPORTAR.</li>
+              <li>Exportar â†’ salve o .bfgpack no pendrive.</li>
+              <li>No outro PC: Importar â†’ digite IMPORTAR.</li>
             </ol>
             <PrimaryButton
               type="button"
               disabled={packBusy != null}
               onClick={runExportPack}
             >
-              {packBusy === 'export' ? 'Exportando…' : 'Exportar dados'}
+              {packBusy === 'export' ? 'Exportandoâ€¦' : 'Exportar dados'}
             </PrimaryButton>
             <Field label='Digite IMPORTAR para habilitar'>
               <input
@@ -739,7 +755,7 @@ export function SettingsPage() {
               className="rounded-lg border border-red-500/50 bg-red-900/50 px-4 py-2.5 text-sm font-semibold text-red-100 transition hover:bg-red-800/60 disabled:cursor-not-allowed disabled:opacity-40"
               onClick={runImportPack}
             >
-              {packBusy === 'import' ? 'Importando…' : 'Importar dados…'}
+              {packBusy === 'import' ? 'Importandoâ€¦' : 'Importar dadosâ€¦'}
             </button>
             {packMsg && (
               <p
@@ -755,17 +771,123 @@ export function SettingsPage() {
           </Section>
 
           <Section
+            title="Recuperar dados"
+            hint="Se o notebook desligou e voltou vazio, tente recuperar antes de zerar."
+          >
+            <p className="text-xs text-ink-400">
+              Backups automáticos a cada 12 horas (máx. 10). Pasta:{' '}
+              {dataDiag?.backupDir ?? '%APPDATA%\\Bufalo Sucata Gestor\\backups'}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <PrimaryButton
+                type="button"
+                disabled={recoverBusy}
+                onClick={() => {
+                  setRecoverBusy(true);
+                  setRecoverMsg(null);
+                  void window.ferrogestor
+                    ?.runDataDiagnostic?.()
+                    .then((d) => {
+                      setDataDiag(d as typeof dataDiag);
+                      const diag = d as typeof dataDiag;
+                      setRecoverMsg(
+                        diag?.warnings?.length
+                          ? diag.warnings.join(' ')
+                          : `Cadastros atuais: ${diag?.currentStats?.total ?? 0}`,
+                      );
+                    })
+                    .catch((e) =>
+                      setRecoverMsg(e instanceof Error ? e.message : String(e)),
+                    )
+                    .finally(() => setRecoverBusy(false));
+                }}
+              >
+                {recoverBusy ? 'Analisando…' : 'Diagnosticar este PC'}
+              </PrimaryButton>
+              <GhostButton
+                type="button"
+                disabled={recoverBusy}
+                onClick={() => {
+                  setRecoverBusy(true);
+                  void importFromLocalStorage()
+                    .then((n) => {
+                      setRecoverMsg(
+                        n > 0
+                          ? `Importados ${n} registros do navegador interno.`
+                          : 'Nada encontrado no navegador interno.',
+                      );
+                      window.location.reload();
+                    })
+                    .finally(() => setRecoverBusy(false));
+                }}
+              >
+                Importar do navegador interno
+              </GhostButton>
+              <GhostButton
+                type="button"
+                disabled={recoverBusy}
+                onClick={() => void window.ferrogestor?.openDataFolder('backups')}
+              >
+                Abrir pasta de backups
+              </GhostButton>
+            </div>
+            {recoverMsg && (
+              <p className="rounded-lg border border-amber-500/30 bg-amber-950/30 px-3 py-2 text-sm text-amber-100">
+                {recoverMsg}
+              </p>
+            )}
+            {dataDiag?.candidates && dataDiag.candidates.length > 0 && (
+              <ul className="max-h-48 space-y-1 overflow-auto text-xs">
+                {dataDiag.candidates.slice(0, 12).map((c) => (
+                  <li
+                    key={c.id}
+                    className="flex items-center justify-between gap-2 rounded border border-white/10 px-2 py-1"
+                  >
+                    <span className="min-w-0 truncate">
+                      {c.label} · {c.hint} ({c.totalRecords || '—'} reg.)
+                    </span>
+                    {c.totalRecords > 0 && c.path.endsWith('.json') ? (
+                      <GhostButton
+                        type="button"
+                        className="!px-2 !py-1 text-[10px]"
+                        onClick={() => {
+                          setRecoverBusy(true);
+                          void window.ferrogestor
+                            ?.restoreDataFile?.(c.path)
+                            .then(() => reloadFromDisk())
+                            .then((n) => {
+                              setRecoverMsg(`Restaurado: ${n} registros.`);
+                              window.location.reload();
+                            })
+                            .catch((e) =>
+                              setRecoverMsg(
+                                e instanceof Error ? e.message : String(e),
+                              ),
+                            )
+                            .finally(() => setRecoverBusy(false));
+                        }}
+                      >
+                        Restaurar
+                      </GhostButton>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Section>
+
+          <Section
             title="Zerar dados locais"
             hint="Com PostgreSQL online: arquiva o período, renomeia o PC antigo (ex. Escritório_01) e limpa o local. O histórico fica em Dados antigos."
           >
             <p className="text-[11px] text-ink-400">
-              Use quando quiser começar limpo neste PC. Compras/vendas/caixa
+              Use quando quiser comeÃ§ar limpo neste PC. Compras/vendas/caixa
               antigos continuam no servidor e podem ser consultados na aba{' '}
-              <strong className="text-ink-200">Dados antigos</strong> (só
+              <strong className="text-ink-200">Dados antigos</strong> (sÃ³
               leitura + PDF).
             </p>
             <Switch
-              label="Manter configurações da empresa"
+              label="Manter configuraÃ§Ãµes da empresa"
               checked={preserveSettingsOnWipe}
               onChange={setPreserveSettingsOnWipe}
             />
@@ -790,7 +912,7 @@ export function SettingsPage() {
               className="rounded-lg border border-red-500/50 bg-red-900/50 px-4 py-2.5 text-sm font-semibold text-red-100 transition hover:bg-red-800/60 disabled:cursor-not-allowed disabled:opacity-40"
               onClick={runWipe}
             >
-              {wiping ? 'Zerando…' : 'Zerar todos os dados locais'}
+              {wiping ? 'Zerandoâ€¦' : 'Zerar todos os dados locais'}
             </button>
           </Section>
         </div>
@@ -813,7 +935,7 @@ export function SettingsPage() {
                   )
                 }
               >
-                <option value="auto">Automático (recomendado)</option>
+                <option value="auto">AutomÃ¡tico (recomendado)</option>
                 <option value="manual">Manual</option>
               </select>
             </Field>
@@ -836,16 +958,16 @@ export function SettingsPage() {
             </Field>
           </Section>
 
-          <Section title="Aplicativo" hint="Versão, atualização e backup técnico.">
+          <Section title="Aplicativo" hint="VersÃ£o, atualizaÃ§Ã£o e backup tÃ©cnico.">
             <div className="rounded-lg border border-white/10 bg-ink-900/40 px-3 py-3 text-sm">
               <p>
                 <span className="text-ink-300">Nome:</span> {appInfo?.name}
               </p>
               <p className="mt-1">
-                <span className="text-ink-300">Versão:</span> {appInfo?.version}
+                <span className="text-ink-300">VersÃ£o:</span> {appInfo?.version}
               </p>
               <p className="mt-1 break-all text-xs">
-                <span className="text-ink-300">SQLite:</span> {appInfo?.dbPath ?? '—'}
+                <span className="text-ink-300">SQLite:</span> {appInfo?.dbPath ?? 'â€”'}
               </p>
             </div>
             {updateMsg && (
@@ -864,14 +986,14 @@ export function SettingsPage() {
             )}
             <div className="flex flex-wrap gap-2">
               <PrimaryButton type="button" onClick={checkUpdates}>
-                Verificar atualizações
+                Verificar atualizaÃ§Ãµes
               </PrimaryButton>
               {updatePhase === 'available' && (
                 <PrimaryButton
                   type="button"
                   onClick={() => {
                     setUpdatePhase('downloading');
-                    setUpdateMsg('Iniciando download…');
+                    setUpdateMsg('Iniciando downloadâ€¦');
                     void window.ferrogestor?.downloadUpdate();
                   }}
                 >

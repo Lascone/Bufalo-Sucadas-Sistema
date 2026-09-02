@@ -10,8 +10,26 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
-import { createBackup, listBackups } from './backup';
-import { getLocalDbPath, ensureLocalDataDir, wipeUserDataFolders } from './local-db';
+import { createBackup, listBackups, restoreBackup } from './backup';
+import {
+  getLocalDbPath,
+  getDataDir,
+  getBackupDir,
+  ensureLocalDataDir,
+  wipeUserDataFolders,
+} from './local-db';
+import { configureUserDataPath } from './user-data-path';
+import {
+  loadDataStore,
+  mergeDataStore,
+  persistNow,
+  createDataBackup,
+  restoreFromFile,
+  migrateFromLegacyProfiles,
+} from './data-store';
+import { runDataDiagnostic } from './data-recovery';
+import { startAutoBackupScheduler } from './backup-scheduler';
+import { startOutboxWorker, setOutboxWindow } from './outbox-worker';
 import {
   archiveAndRotateDeviceOnWipe,
   listWipeArchives,
@@ -50,10 +68,11 @@ const updaterMod = nodeRequire('electron-updater') as {
 const resolvedUpdater =
   updaterMod.autoUpdater ?? updaterMod.default?.autoUpdater;
 if (!resolvedUpdater) {
-  throw new Error('electron-updater não carregou (autoUpdater ausente)');
+  throw new Error('electron-updater nÃ£o carregou (autoUpdater ausente)');
 }
 const autoUpdater = resolvedUpdater;
 
+configureUserDataPath();
 function distRoot() {
   if (app.isPackaged) {
     return path.join(app.getAppPath(), 'dist');
@@ -74,6 +93,8 @@ let mainWindow: BrowserWindow | null = null;
 function createWindow() {
   const dist = distRoot();
   const pub = publicRoot();
+  const indexHtml = path.join(dist, 'index.html');
+
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 920,
@@ -92,10 +113,20 @@ function createWindow() {
   if (!app.isPackaged && process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
-  } else if (!app.isPackaged) {
+  } else if (!app.isPackaged && process.env.FORCE_LOAD_FILE !== '1') {
     mainWindow.loadURL('http://localhost:5173');
   } else {
-    mainWindow.loadFile(path.join(dist, 'index.html'));
+    void mainWindow.loadFile(indexHtml).catch((err) => {
+      console.error('Falha ao carregar UI:', err);
+    });
+  }
+
+  mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
+    console.error('did-fail-load', code, description, url);
+  });
+
+  if (app.isPackaged) {
+    Menu.setApplicationMenu(null);
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -103,7 +134,7 @@ function createWindow() {
     return { action: 'deny' };
   });
 
-  // Menu nativo está desligado — F11 precisa ser tratado aqui
+  // Menu nativo estÃ¡ desligado â€” F11 precisa ser tratado aqui
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
     if (input.key === 'F11') {
@@ -118,7 +149,7 @@ function createWindow() {
     }
   });
 
-  // Após minimizar/restaurar ou voltar o foco, reativa input (Chromium às vezes “trava” mouse/teclado)
+  // ApÃ³s minimizar/restaurar ou voltar o foco, reativa input (Chromium Ã s vezes â€œtravaâ€ mouse/teclado)
   const refocusWebContents = () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     try {
@@ -135,7 +166,7 @@ function createWindow() {
 
 function setupAutoUpdater() {
   autoUpdater.autoDownload = false;
-  // electron-builder publica latest.yml (não stable.yml)
+  // electron-builder publica latest.yml (nÃ£o stable.yml)
   autoUpdater.channel = process.env.UPDATE_CHANNEL ?? 'latest';
   autoUpdater.allowPrerelease = false;
 
@@ -165,10 +196,56 @@ function registerIpc() {
   ipcMain.handle('app:getInfo', () => ({
     version: app.getVersion(),
     name: 'Búfalo Sucata Gestor',
-    company: 'Búfalo Sucatas',
+    company: 'BÃºfalo Sucatas',
     isPackaged: app.isPackaged,
     dbPath: getLocalDbPath(),
+    dataPath: path.join(getDataDir(), 'app-data.json'),
+    userDataDir: app.getPath('userData'),
+    backupDir: getBackupDir(),
   }));
+
+  ipcMain.handle('data:load', () => {
+    const data = loadDataStore();
+    return { data, stats: runDataDiagnostic().currentStats };
+  });
+
+  ipcMain.handle('data:persist', (_e, payload: Record<string, unknown>) => {
+    mergeDataStore(payload, 'renderer-save');
+    return { ok: true };
+  });
+
+  ipcMain.handle('data:importAll', (_e, payload: Record<string, unknown>) => {
+    persistNow(payload, 'import-localStorage');
+    return { ok: true, stats: runDataDiagnostic().currentStats };
+  });
+
+  ipcMain.handle('data:diagnose', () => runDataDiagnostic());
+
+  ipcMain.handle('data:restoreFile', (_e, filePath: string) => {
+    const data = restoreFromFile(filePath);
+    return { ok: true, data, stats: runDataDiagnostic().currentStats };
+  });
+
+  ipcMain.handle('data:backupNow', () => {
+    const target = createDataBackup('manual');
+    return { ok: true, path: target };
+  });
+
+  ipcMain.handle('data:openFolder', (_e, which: 'userData' | 'data' | 'backups') => {
+    const target =
+      which === 'backups'
+        ? getBackupDir()
+        : which === 'data'
+          ? getDataDir()
+          : app.getPath('userData');
+    shell.openPath(target);
+    return { ok: true, path: target };
+  });
+
+  ipcMain.handle('backup:restore', (_e, backupPath: string) => {
+    restoreBackup(backupPath);
+    return { ok: true };
+  });
 
   ipcMain.handle('sync:getSnapshot', () => getSyncSnapshot());
   ipcMain.handle('sync:runNow', async (_e, opts?: {
@@ -297,6 +374,49 @@ function registerIpc() {
   });
 
   ipcMain.handle(
+    'media:savePartnerPhoto',
+    async (_e, payload: { partnerName: string; base64: string; ext: string }) => {
+      const mediaDir = path.join(app.getPath('userData'), 'media', 'partners');
+      if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
+      const safe =
+        payload.partnerName.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase() || 'partner';
+      const ext = (payload.ext || 'jpg').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
+      const fileName = `${safe}.${ext}`;
+      const fullPath = path.join(mediaDir, fileName);
+      fs.writeFileSync(fullPath, Buffer.from(payload.base64, 'base64'));
+      return { photoPath: fileName, fullPath };
+    },
+  );
+
+  ipcMain.handle('media:getPartnerPhotoDataUrl', async (_e, photoPath: string) => {
+    if (!photoPath || photoPath.includes('..') || path.isAbsolute(photoPath)) {
+      return null;
+    }
+    const fullPath = path.join(app.getPath('userData'), 'media', 'partners', photoPath);
+    if (!fs.existsSync(fullPath)) return null;
+    const buf = fs.readFileSync(fullPath);
+    const ext = path.extname(photoPath).slice(1).toLowerCase() || 'jpeg';
+    const mime =
+      ext === 'png'
+        ? 'image/png'
+        : ext === 'webp'
+          ? 'image/webp'
+          : ext === 'gif'
+            ? 'image/gif'
+            : 'image/jpeg';
+    return `data:${mime};base64,${buf.toString('base64')}`;
+  });
+
+  ipcMain.handle('media:deletePartnerPhoto', async (_e, photoPath: string) => {
+    if (!photoPath || photoPath.includes('..') || path.isAbsolute(photoPath)) {
+      return false;
+    }
+    const fullPath = path.join(app.getPath('userData'), 'media', 'partners', photoPath);
+    if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+    return true;
+  });
+
+  ipcMain.handle(
     'media:saveMaterialPhoto',
     async (
       _e,
@@ -364,7 +484,7 @@ function registerIpc() {
       const fullPath = path.join(exportsDir, fileName);
       fs.writeFileSync(fullPath, Buffer.from(payload.base64, 'base64'));
 
-      // Caminho no clipboard → no WhatsApp Desktop dá para colar/anexar com Ctrl+V
+      // Caminho no clipboard â†’ no WhatsApp Desktop dÃ¡ para colar/anexar com Ctrl+V
       clipboard.writeText(fullPath);
       shell.showItemInFolder(fullPath);
 
@@ -430,13 +550,13 @@ function findWhatsAppExe(): string | null {
 
 function truncateShareText(text: string, max = 1400): string {
   if (text.length <= max) return text;
-  return `${text.slice(0, max - 1)}…`;
+  return `${text.slice(0, max - 1)}â€¦`;
 }
 
 /**
  * Abre o fluxo de envio no WhatsApp (app registrado ou Web).
- * Não dá para anexar PDF via API do WhatsApp — salvamos o arquivo, abrimos o
- * diálogo de mensagem e deixamos o caminho no clipboard / Explorer.
+ * NÃ£o dÃ¡ para anexar PDF via API do WhatsApp â€” salvamos o arquivo, abrimos o
+ * diÃ¡logo de mensagem e deixamos o caminho no clipboard / Explorer.
  */
 async function openWhatsAppPreferred(opts: {
   caption?: string;
@@ -449,7 +569,7 @@ async function openWhatsAppPreferred(opts: {
   );
   const encoded = encodeURIComponent(message);
 
-  // 1) Link oficial — abre app Desktop se instalado, senão WhatsApp Web
+  // 1) Link oficial â€” abre app Desktop se instalado, senÃ£o WhatsApp Web
   if (await tryOpenExternal(`https://api.whatsapp.com/send?text=${encoded}`)) {
     return 'web';
   }
@@ -459,14 +579,14 @@ async function openWhatsAppPreferred(opts: {
     return 'protocol';
   }
 
-  // 3) WhatsApp Web com texto pré-preenchido
+  // 3) WhatsApp Web com texto prÃ©-preenchido
   if (
     await tryOpenExternal(`https://web.whatsapp.com/send?text=${encoded}`)
   ) {
     return 'web';
   }
 
-  // 4) Só abre o .exe se existir (sem conversa — último recurso)
+  // 4) SÃ³ abre o .exe se existir (sem conversa â€” Ãºltimo recurso)
   const exe = findWhatsAppExe();
   if (exe) {
     const err = await shell.openPath(exe);
@@ -491,13 +611,33 @@ async function openWhatsAppPreferred(opts: {
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   ensureLocalDataDir();
+  const migrated = migrateFromLegacyProfiles();
+  if (migrated.imported) {
+    console.info(
+      `Dados importados de ${migrated.fromDir} (${migrated.totalRecords} registros)`,
+    );
+  }
+  loadDataStore();
   setupAutoUpdater();
   registerIpc();
   createWindow();
+  setOutboxWindow(mainWindow);
+  startOutboxWorker();
+  startAutoBackupScheduler();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    setOutboxWindow(mainWindow);
   });
+});
+
+app.on('before-quit', () => {
+  try {
+    createDataBackup('shutdown');
+    void runSyncCycle({ pushOnly: true });
+  } catch {
+    // ignore backup errors on quit
+  }
 });
 
 app.on('window-all-closed', () => {

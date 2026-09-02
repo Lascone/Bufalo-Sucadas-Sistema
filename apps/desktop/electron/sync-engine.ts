@@ -42,6 +42,7 @@ type SyncStoreFile = {
   lastSyncAt: string | null;
   lastError: string | null;
   online: boolean | null;
+  lastPullAt: string | null;
   history: Array<{
     at: string;
     pushed: number;
@@ -65,10 +66,12 @@ function readStore(): SyncStoreFile {
       lastSyncAt: null,
       lastError: null,
       online: null,
+      lastPullAt: null,
       history: [],
     };
   }
-  return JSON.parse(fs.readFileSync(p, 'utf8')) as SyncStoreFile;
+  const raw = JSON.parse(fs.readFileSync(p, 'utf8')) as SyncStoreFile;
+  return { ...raw, lastPullAt: raw.lastPullAt ?? null };
 }
 
 function writeStore(store: SyncStoreFile): void {
@@ -120,7 +123,7 @@ export async function runSyncCycle(opts?: {
 
   if (!getConfiguredDatabaseUrl()) {
     store.online = false;
-    store.lastError = 'PostgreSQL não configurado — trabalhando offline';
+    store.lastError = 'PostgreSQL nÃ£o configurado â€” trabalhando offline';
     store.lastPullOperations = [];
     writeStore(store);
     return getSyncSnapshot();
@@ -143,8 +146,8 @@ export async function runSyncCycle(opts?: {
   if (!online) {
     store.lastError =
       healthDetail?.includes('Authentication failed')
-        ? 'PostgreSQL recusou login — confira usuário/senha em Configurações → Banco online'
-        : healthDetail ?? 'Servidor indisponível — trabalhando offline';
+        ? 'PostgreSQL recusou login â€” confira usuÃ¡rio/senha em ConfiguraÃ§Ãµes â†’ Banco online'
+        : healthDetail ?? 'Servidor indisponÃ­vel â€” trabalhando offline';
     store.lastPullOperations = [];
     writeStore(store);
     return getSyncSnapshot();
@@ -167,7 +170,7 @@ export async function runSyncCycle(opts?: {
   const userId = ids.userId;
   const deviceId = ids.deviceId || auth.deviceId;
   if (!companyId || !userId || !deviceId) {
-    store.lastError = 'Sessão central incompleta — reconecte em Configurações → Banco online';
+    store.lastError = 'SessÃ£o central incompleta â€” reconecte em ConfiguraÃ§Ãµes â†’ Banco online';
     store.lastPullOperations = [];
     writeStore(store);
     return { ...getSyncSnapshot(), skipped: true, reason: 'no-session' };
@@ -175,13 +178,13 @@ export async function runSyncCycle(opts?: {
 
   const core = await getSyncCore();
   if (!core) {
-    store.lastError = 'Não foi possível abrir o núcleo de sincronização';
+    store.lastError = 'NÃ£o foi possÃ­vel abrir o nÃºcleo de sincronizaÃ§Ã£o';
     store.lastPullOperations = [];
     writeStore(store);
     return getSyncSnapshot();
   }
 
-  // Local-first: conflitos anteriores voltam pra fila com versão maior
+  // Local-first: conflitos anteriores voltam pra fila com versÃ£o maior
   if (preferLocal) {
     for (const op of store.pending) {
       if (op.status === 'CONFLICT') {
@@ -228,7 +231,7 @@ export async function runSyncCycle(opts?: {
           if (preferLocal) {
             op.status = 'PENDING';
             op.version = Math.max(1, Number(op.version) || 1) + 1;
-            op.lastError = 'Conflito — reenviando com prioridade local';
+            op.lastError = 'Conflito â€” reenviando com prioridade local';
           } else {
             op.status = 'CONFLICT';
             conflicts += 1;
@@ -237,6 +240,8 @@ export async function runSyncCycle(opts?: {
           op.status = 'ERROR';
           op.lastError = errorMap.get(op.originOperationId);
           errors += 1;
+        } else if (op.status === 'SYNCING') {
+          op.status = 'PENDING';
         }
       }
     } catch (err) {
@@ -281,13 +286,13 @@ export async function runSyncCycle(opts?: {
   }
 
   store.lastPullOperations = pullOperations;
-  // Só avança o cursor se o pull ok (evita “pular” dados do outro PC)
+  // SÃ³ avanÃ§a o cursor se o pull ok (evita â€œpularâ€ dados do outro PC)
   if (!pullFailed) {
     store.lastSyncAt = new Date().toISOString();
   }
   store.lastError =
     errors > 0
-      ? 'Há operações com erro — a fila continua tentando'
+      ? 'HÃ¡ operaÃ§Ãµes com erro â€” a fila continua tentando'
       : pullFailed
         ? `Push ok; pull falhou: ${pullError}`
         : null;
@@ -303,7 +308,11 @@ export async function runSyncCycle(opts?: {
   store.pending = store.pending.filter((o) => o.status !== 'SYNCED');
   writeStore(store);
 
-  return getSyncSnapshot();
+  return {
+    ...getSyncSnapshot(),
+    lastPullOperations: pullOperations,
+    remoteApplied: pullOperations.length,
+  };
 }
 
 /** Importa entidades de outro device (mesma empresa) para aplicar localmente. */
@@ -315,7 +324,7 @@ export async function importFromDevice(deviceId: string): Promise<
     const db = await getCentralPrisma();
     const auth = readSyncAuth();
     if (!db || !auth.companyId) {
-      return { ok: false, error: 'PostgreSQL não configurado ou sem empresa.' };
+      return { ok: false, error: 'PostgreSQL nÃ£o configurado ou sem empresa.' };
     }
     if (!deviceId.trim()) {
       return { ok: false, error: 'Informe o dispositivo de origem.' };
@@ -393,10 +402,10 @@ export async function resolveSyncConflict(input: {
 }) {
   const ids = getSyncSessionIds();
   if (!ids.companyId || !ids.userId) {
-    return { ok: false as const, error: 'Sessão central incompleta' };
+    return { ok: false as const, error: 'SessÃ£o central incompleta' };
   }
   const core = await getSyncCore();
-  if (!core) return { ok: false as const, error: 'Banco indisponível' };
+  if (!core) return { ok: false as const, error: 'Banco indisponÃ­vel' };
   try {
     await core.resolveConflict(
       input.conflictId,
