@@ -13,7 +13,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     if (!resolveDatabaseUrl()) {
       this.logger.warn(
-        'DATABASE_URL nÃ£o definido â€” configure o Postgres (env ou ConfiguraÃ§Ãµes â†’ Banco online no desktop).',
+        'DATABASE_URL não definido — configure o Postgres (env ou Configurações → Banco online no desktop).',
       );
       return;
     }
@@ -22,7 +22,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
       this.logger.log('PostgreSQL conectado');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.logger.error(`PostgreSQL indisponÃ­vel â€” ${msg}`);
+      this.logger.error(`PostgreSQL indisponível — ${msg}`);
     }
   }
 

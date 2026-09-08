@@ -68,7 +68,7 @@ const updaterMod = nodeRequire('electron-updater') as {
 const resolvedUpdater =
   updaterMod.autoUpdater ?? updaterMod.default?.autoUpdater;
 if (!resolvedUpdater) {
-  throw new Error('electron-updater nÃ£o carregou (autoUpdater ausente)');
+  throw new Error('electron-updater não carregou (autoUpdater ausente)');
 }
 const autoUpdater = resolvedUpdater;
 
@@ -134,7 +134,7 @@ function createWindow() {
     return { action: 'deny' };
   });
 
-  // Menu nativo estÃ¡ desligado â€” F11 precisa ser tratado aqui
+  // Menu nativo está desligado — F11 precisa ser tratado aqui
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
     if (input.key === 'F11') {
@@ -149,7 +149,7 @@ function createWindow() {
     }
   });
 
-  // ApÃ³s minimizar/restaurar ou voltar o foco, reativa input (Chromium Ã s vezes â€œtravaâ€ mouse/teclado)
+  // Após minimizar/restaurar ou voltar o foco, reativa input (Chromium às vezes “trava” mouse/teclado)
   const refocusWebContents = () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     try {
@@ -166,7 +166,7 @@ function createWindow() {
 
 function setupAutoUpdater() {
   autoUpdater.autoDownload = false;
-  // electron-builder publica latest.yml (nÃ£o stable.yml)
+  // electron-builder publica latest.yml (não stable.yml)
   autoUpdater.channel = process.env.UPDATE_CHANNEL ?? 'latest';
   autoUpdater.allowPrerelease = false;
 
@@ -196,7 +196,7 @@ function registerIpc() {
   ipcMain.handle('app:getInfo', () => ({
     version: app.getVersion(),
     name: 'Búfalo Sucata Gestor',
-    company: 'BÃºfalo Sucatas',
+    company: 'Búfalo Sucatas',
     isPackaged: app.isPackaged,
     dbPath: getLocalDbPath(),
     dataPath: path.join(getDataDir(), 'app-data.json'),
@@ -484,7 +484,7 @@ function registerIpc() {
       const fullPath = path.join(exportsDir, fileName);
       fs.writeFileSync(fullPath, Buffer.from(payload.base64, 'base64'));
 
-      // Caminho no clipboard â†’ no WhatsApp Desktop dÃ¡ para colar/anexar com Ctrl+V
+      // Caminho no clipboard → no WhatsApp Desktop dá para colar/anexar com Ctrl+V
       clipboard.writeText(fullPath);
       shell.showItemInFolder(fullPath);
 
@@ -550,13 +550,13 @@ function findWhatsAppExe(): string | null {
 
 function truncateShareText(text: string, max = 1400): string {
   if (text.length <= max) return text;
-  return `${text.slice(0, max - 1)}â€¦`;
+  return `${text.slice(0, max - 1)}…`;
 }
 
 /**
  * Abre o fluxo de envio no WhatsApp (app registrado ou Web).
- * NÃ£o dÃ¡ para anexar PDF via API do WhatsApp â€” salvamos o arquivo, abrimos o
- * diÃ¡logo de mensagem e deixamos o caminho no clipboard / Explorer.
+ * Não dá para anexar PDF via API do WhatsApp — salvamos o arquivo, abrimos o
+ * diálogo de mensagem e deixamos o caminho no clipboard / Explorer.
  */
 async function openWhatsAppPreferred(opts: {
   caption?: string;
@@ -569,7 +569,7 @@ async function openWhatsAppPreferred(opts: {
   );
   const encoded = encodeURIComponent(message);
 
-  // 1) Link oficial â€” abre app Desktop se instalado, senÃ£o WhatsApp Web
+  // 1) Link oficial — abre app Desktop se instalado, senão WhatsApp Web
   if (await tryOpenExternal(`https://api.whatsapp.com/send?text=${encoded}`)) {
     return 'web';
   }
@@ -579,14 +579,14 @@ async function openWhatsAppPreferred(opts: {
     return 'protocol';
   }
 
-  // 3) WhatsApp Web com texto prÃ©-preenchido
+  // 3) WhatsApp Web com texto pré-preenchido
   if (
     await tryOpenExternal(`https://web.whatsapp.com/send?text=${encoded}`)
   ) {
     return 'web';
   }
 
-  // 4) SÃ³ abre o .exe se existir (sem conversa â€” Ãºltimo recurso)
+  // 4) Só abre o .exe se existir (sem conversa — último recurso)
   const exe = findWhatsAppExe();
   if (exe) {
     const err = await shell.openPath(exe);

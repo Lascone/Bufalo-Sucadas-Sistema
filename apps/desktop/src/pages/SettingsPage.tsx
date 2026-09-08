@@ -20,7 +20,7 @@ type TabId = 'empresa' | 'operacao' | 'banco' | 'dados' | 'sistema';
 
 const TABS: Array<{ id: TabId; label: string }> = [
   { id: 'empresa', label: 'Empresa' },
-  { id: 'operacao', label: 'OperaÃ§Ã£o' },
+  { id: 'operacao', label: 'Operação' },
   { id: 'banco', label: 'Banco online' },
   { id: 'dados', label: 'Dados' },
   { id: 'sistema', label: 'Sistema' },
@@ -137,11 +137,11 @@ export function SettingsPage() {
             ? String((info as { version: string }).version)
             : '';
         setUpdatePhase('available');
-        setUpdateMsg(v ? `Nova versÃ£o ${v} disponÃ­vel.` : 'Nova versÃ£o disponÃ­vel.');
+        setUpdateMsg(v ? `Nova versão ${v} disponível.` : 'Nova versão disponível.');
       }),
       api.onUpdaterEvent('updater:not-available', () => {
         setUpdatePhase('not-available');
-        setUpdateMsg('VocÃª jÃ¡ estÃ¡ na versÃ£o mais recente.');
+        setUpdateMsg('Você já está na versão mais recente.');
       }),
       api.onUpdaterEvent('updater:progress', (p) => {
         setUpdatePhase('downloading');
@@ -150,7 +150,7 @@ export function SettingsPage() {
             ? Number((p as { percent: number }).percent)
             : 0;
         setDownloadPct(Math.round(pct));
-        setUpdateMsg(`Baixandoâ€¦ ${Math.round(pct)}%`);
+        setUpdateMsg(`Baixando… ${Math.round(pct)}%`);
       }),
       api.onUpdaterEvent('updater:downloaded', (info) => {
         const v =
@@ -160,7 +160,7 @@ export function SettingsPage() {
         setUpdatePhase('ready');
         setUpdateMsg(
           v
-            ? `VersÃ£o ${v} baixada. Clique em Instalar e reiniciar.`
+            ? `Versão ${v} baixada. Clique em Instalar e reiniciar.`
             : 'Update baixado. Clique em Instalar e reiniciar.',
         );
       }),
@@ -199,7 +199,7 @@ export function SettingsPage() {
   const saveDb = async () => {
     if (!window.ferrogestor?.saveCentralConnection) {
       setDbMsgTone('err');
-      setDbMsg('DisponÃ­vel apenas no app Electron.');
+      setDbMsg('Disponível apenas no app Electron.');
       return;
     }
     setDbSaving(true);
@@ -207,7 +207,7 @@ export function SettingsPage() {
     try {
       const result = await window.ferrogestor.saveCentralConnection({
         ...db,
-        deviceName: db.deviceName || 'EscritÃ³rio',
+        deviceName: db.deviceName || 'Escritório',
       });
       setDb(result.connection);
       await updateSettings({
@@ -218,7 +218,7 @@ export function SettingsPage() {
       setDbMsg(
         result.connect.ok
           ? 'Salvo e conectado ao PostgreSQL. Este PC foi registrado.'
-          : `Salvo, mas conexÃ£o: ${result.connect.error}`,
+          : `Salvo, mas conexão: ${result.connect.error}`,
       );
     } catch (e) {
       setDbMsgTone('err');
@@ -245,7 +245,7 @@ export function SettingsPage() {
     void wipeLocalData({ preserveSettings: preserveSettingsOnWipe })
       .then((r) => {
         const archiveBit = r.archive
-          ? ` HistÃ³rico arquivado como ${r.archive.archivedName} (veja Dados antigos).`
+          ? ` Histórico arquivado como ${r.archive.archivedName} (veja Dados antigos).`
           : r.archiveOfflineMessage
             ? ` ${r.archiveOfflineMessage}`
             : '';
@@ -256,7 +256,7 @@ export function SettingsPage() {
               : '') +
             ').' +
             archiveBit +
-            ' Reiniciandoâ€¦',
+            ' Reiniciando…',
         );
         clearOperator();
         setTimeout(() => {
@@ -279,7 +279,7 @@ export function SettingsPage() {
         setPackBusy(null);
         if ('cancelled' in r && r.cancelled) {
           setPackMsgTone('ok');
-          setPackMsg('ExportaÃ§Ã£o cancelada.');
+          setPackMsg('Exportação cancelada.');
           return;
         }
         if (!r.ok) {
@@ -289,7 +289,7 @@ export function SettingsPage() {
         }
         setPackMsgTone('ok');
         setPackMsg(
-          `Exportado: ${r.keyCount} tabelas, ${r.mediaCount} arquivo(s) de mÃ­dia.\n${r.path}`,
+          `Exportado: ${r.keyCount} tabelas, ${r.mediaCount} arquivo(s) de mídia.\n${r.path}`,
         );
       })
       .catch((e) => {
@@ -308,7 +308,7 @@ export function SettingsPage() {
         if ('cancelled' in r && r.cancelled) {
           setPackBusy(null);
           setPackMsgTone('ok');
-          setPackMsg('ImportaÃ§Ã£o cancelada.');
+          setPackMsg('Importação cancelada.');
           return;
         }
         if (!r.ok) {
@@ -319,7 +319,7 @@ export function SettingsPage() {
         }
         setPackMsgTone('ok');
         setPackMsg(
-          `Importado: ${r.writtenKeys.length} chaves, ${r.mediaCount} mÃ­dia(s). Reiniciandoâ€¦`,
+          `Importado: ${r.writtenKeys.length} chaves, ${r.mediaCount} mídia(s). Reiniciando…`,
         );
         clearOperator();
         setTimeout(() => {
@@ -335,13 +335,13 @@ export function SettingsPage() {
 
   const checkUpdates = () => {
     setUpdatePhase('checking');
-    setUpdateMsg('Verificandoâ€¦');
+    setUpdateMsg('Verificando…');
     setDownloadPct(null);
     void window.ferrogestor?.checkForUpdates()?.then((res) => {
       if (res && typeof res === 'object' && 'skipped' in res) {
         setUpdatePhase('dev');
         setUpdateMsg(
-          'Modo desenvolvimento: update sÃ³ funciona no app instalado (.exe), nÃ£o no pnpm dev.',
+          'Modo desenvolvimento: update só funciona no app instalado (.exe), não no pnpm dev.',
         );
       }
     });
@@ -350,20 +350,20 @@ export function SettingsPage() {
   return (
     <div>
       <PageHeader
-        title="ConfiguraÃ§Ãµes"
-        subtitle="Organize por abas. Banco online: sÃ³ PostgreSQL â€” o app sincroniza direto, sem API."
+        title="Configurações"
+        subtitle="Organize por abas. Banco online: só PostgreSQL — o app sincroniza direto, sem API."
         actions={
           tab !== 'banco' ? (
             <div className="flex items-center gap-3">
               {saved && <span className="text-sm text-moss-400">Salvo</span>}
               <PrimaryButton onClick={save} disabled={saving}>
-                {saving ? 'Salvandoâ€¦' : 'Salvar'}
+                {saving ? 'Salvando…' : 'Salvar'}
               </PrimaryButton>
             </div>
           ) : (
             <div className="flex items-center gap-3">
               <PrimaryButton onClick={() => void saveDb()} disabled={dbSaving}>
-                {dbSaving ? 'Salvandoâ€¦' : 'Testar e salvar'}
+                {dbSaving ? 'Salvando…' : 'Testar e salvar'}
               </PrimaryButton>
             </div>
           )
@@ -393,7 +393,7 @@ export function SettingsPage() {
             title="Dados da empresa"
             hint="Aparecem nos PDFs de venda e fechamento de caixa."
           >
-            <Field label="Nome de exibiÃ§Ã£o">
+            <Field label="Nome de exibição">
               <input
                 className={fieldClass}
                 value={form['company.displayName']}
@@ -408,7 +408,7 @@ export function SettingsPage() {
                 placeholder="00.000.000/0000-00"
               />
             </Field>
-            <Field label="EndereÃ§o">
+            <Field label="Endereço">
               <input
                 className={fieldClass}
                 value={form['company.address']}
@@ -431,7 +431,7 @@ export function SettingsPage() {
               />
             </Field>
           </Section>
-          <Section title="ImpressÃ£o" hint="Formato dos comprovantes em PDF.">
+          <Section title="Impressão" hint="Formato dos comprovantes em PDF.">
             <Field label="Papel">
               <select
                 className={fieldClass}
@@ -442,7 +442,7 @@ export function SettingsPage() {
                 <option value="A5">A5</option>
               </select>
             </Field>
-            <Field label="Mensagem de rodapÃ©">
+            <Field label="Mensagem de rodapé">
               <input
                 className={fieldClass}
                 value={form['print.footerMessage']}
@@ -462,7 +462,7 @@ export function SettingsPage() {
         <div className="grid gap-4 lg:grid-cols-2">
           <Section
             title="Caixa do dia"
-            hint="Abertura/fechamento automÃ¡tico ou manual, saldo padrÃ£o e regras."
+            hint="Abertura/fechamento automático ou manual, saldo padrão e regras."
           >
             <Field label="Abertura do caixa">
               <select
@@ -476,10 +476,10 @@ export function SettingsPage() {
                 }
               >
                 <option value="manual">
-                  Manual (padrÃ£o) â€” operador abre na tela do Caixa
+                  Manual (padrão) — operador abre na tela do Caixa
                 </option>
                 <option value="auto">
-                  AutomÃ¡tica â€” abre sozinho ao ligar / apÃ³s fechar o dia
+                  Automática — abre sozinho ao ligar / após fechar o dia
                 </option>
               </select>
             </Field>
@@ -495,14 +495,14 @@ export function SettingsPage() {
                 }
               >
                 <option value="auto">
-                  AutomÃ¡tico â€” no horÃ¡rio e ao religar (fecha dia anterior)
+                  Automático — no horário e ao religar (fecha dia anterior)
                 </option>
                 <option value="manual">
-                  Manual â€” sÃ³ fecha na tela (ainda fecha dia anterior ao religar)
+                  Manual — só fecha na tela (ainda fecha dia anterior ao religar)
                 </option>
               </select>
             </Field>
-            <Field label="Saldo inicial padrÃ£o (R$)">
+            <Field label="Saldo inicial padrão (R$)">
               <input
                 className={fieldClass}
                 inputMode="decimal"
@@ -512,7 +512,7 @@ export function SettingsPage() {
                 }
               />
             </Field>
-            <Field label="HorÃ¡rio de fechamento automÃ¡tico">
+            <Field label="Horário de fechamento automático">
               <input
                 className={fieldClass}
                 type="time"
@@ -523,21 +523,21 @@ export function SettingsPage() {
             </Field>
             <p className="text-[11px] text-ink-400">
               Se o PC desligar sem fechar, ao religar o app fecha o caixa do dia
-              anterior (saldo esperado) e, se a abertura for automÃ¡tica, abre o
+              anterior (saldo esperado) e, se a abertura for automática, abre o
               de hoje.
             </p>
             <Switch
-              label="Exigir justificativa se houver diferenÃ§a"
+              label="Exigir justificativa se houver diferença"
               checked={form['cash.requireDifferenceReason']}
               onChange={(v) => setField('cash.requireDifferenceReason', v)}
             />
             <Switch
-              label="Permitir vÃ¡rios caixas abertos"
+              label="Permitir vários caixas abertos"
               checked={form['cash.allowMultipleOpen']}
               onChange={(v) => setField('cash.allowMultipleOpen', v)}
             />
           </Section>
-          <Section title="Recebedores" hint="SÃ³cios que recebem nas vendas. Caixa (trocado no gaveteiro) jÃ¡ vem fixo na tela de Vendas.">
+          <Section title="Recebedores" hint="Sócios que recebem nas vendas. Caixa (trocado no gaveteiro) já vem fixo na tela de Vendas.">
             <Field label="Nomes">
               <div className="grid gap-2">
                 {(form['sales.partners'] ?? ['Keity', 'Steve']).map((name, idx) => (
@@ -586,7 +586,7 @@ export function SettingsPage() {
               </div>
             </Field>
             <Switch
-              label="ComentÃ¡rios nas vendas"
+              label="Comentários nas vendas"
               checked={form['sales.commentsEnabled']}
               onChange={(v) => setField('sales.commentsEnabled', v)}
             />
@@ -595,7 +595,7 @@ export function SettingsPage() {
                 Financeiro
               </GhostButton>
               <GhostButton type="button" className="!py-1.5 text-xs" onClick={() => navigate('/patio')}>
-                PÃ¡tio
+                Pátio
               </GhostButton>
             </div>
           </Section>
@@ -606,7 +606,7 @@ export function SettingsPage() {
         <div className="grid gap-4 lg:grid-cols-2">
           <Section
             title="PostgreSQL (central)"
-            hint="Preencha uma vez. O app sincroniza direto com o banco â€” sem API separada."
+            hint="Preencha uma vez. O app sincroniza direto com o banco — sem API separada."
           >
             <Field label="IP ou host">
               <input
@@ -634,7 +634,7 @@ export function SettingsPage() {
                 />
               </Field>
             </div>
-            <Field label="UsuÃ¡rio">
+            <Field label="Usuário">
               <input
                 className={fieldClass}
                 value={db.user}
@@ -655,9 +655,9 @@ export function SettingsPage() {
             <Field label="Nome deste PC">
               <input
                 className={fieldClass}
-                value={db.deviceName ?? 'EscritÃ³rio'}
+                value={db.deviceName ?? 'Escritório'}
                 onChange={(e) => setDbField('deviceName', e.target.value)}
-                placeholder="EscritÃ³rio"
+                placeholder="Escritório"
               />
             </Field>
             <div className="flex flex-wrap gap-2">
@@ -666,19 +666,19 @@ export function SettingsPage() {
                 disabled={dbBusy === 'pg'}
                 onClick={() => void testPg()}
               >
-                {dbBusy === 'pg' ? 'Testandoâ€¦' : 'Testar PostgreSQL'}
+                {dbBusy === 'pg' ? 'Testando…' : 'Testar PostgreSQL'}
               </PrimaryButton>
               <PrimaryButton type="button" disabled={dbSaving} onClick={() => void saveDb()}>
-                {dbSaving ? 'Salvandoâ€¦' : 'Testar e salvar'}
+                {dbSaving ? 'Salvando…' : 'Testar e salvar'}
               </PrimaryButton>
             </div>
           </Section>
 
           <Section
-            title="SincronizaÃ§Ã£o"
+            title="Sincronização"
             hint="O app abre offline. Com o banco salvo, a fila sobe sozinha."
           >
-            <Field label="Intervalo de sync automÃ¡tico (minutos)">
+            <Field label="Intervalo de sync automático (minutos)">
               <input
                 className={fieldClass}
                 inputMode="numeric"
@@ -700,8 +700,8 @@ export function SettingsPage() {
               Abrir Central de Sync
             </GhostButton>
             <p className="text-xs text-ink-400">
-              Em outro PC: instale, abra e preencha o mesmo PostgreSQL. O histÃ³rico
-              Ã© baixado automaticamente.
+              Em outro PC: instale, abra e preencha o mesmo PostgreSQL. O histórico
+              é baixado automaticamente.
             </p>
           </Section>
 
@@ -726,15 +726,15 @@ export function SettingsPage() {
             hint="Exporta/importa o pacote completo entre PCs sem depender da internet."
           >
             <ol className="list-decimal space-y-0.5 pl-4 text-xs text-ink-300">
-              <li>Exportar â†’ salve o .bfgpack no pendrive.</li>
-              <li>No outro PC: Importar â†’ digite IMPORTAR.</li>
+              <li>Exportar → salve o .bfgpack no pendrive.</li>
+              <li>No outro PC: Importar → digite IMPORTAR.</li>
             </ol>
             <PrimaryButton
               type="button"
               disabled={packBusy != null}
               onClick={runExportPack}
             >
-              {packBusy === 'export' ? 'Exportandoâ€¦' : 'Exportar dados'}
+              {packBusy === 'export' ? 'Exportando…' : 'Exportar dados'}
             </PrimaryButton>
             <Field label='Digite IMPORTAR para habilitar'>
               <input
@@ -755,7 +755,7 @@ export function SettingsPage() {
               className="rounded-lg border border-red-500/50 bg-red-900/50 px-4 py-2.5 text-sm font-semibold text-red-100 transition hover:bg-red-800/60 disabled:cursor-not-allowed disabled:opacity-40"
               onClick={runImportPack}
             >
-              {packBusy === 'import' ? 'Importandoâ€¦' : 'Importar dadosâ€¦'}
+              {packBusy === 'import' ? 'Importando…' : 'Importar dados…'}
             </button>
             {packMsg && (
               <p
@@ -881,13 +881,13 @@ export function SettingsPage() {
             hint="Com PostgreSQL online: arquiva o período, renomeia o PC antigo (ex. Escritório_01) e limpa o local. O histórico fica em Dados antigos."
           >
             <p className="text-[11px] text-ink-400">
-              Use quando quiser comeÃ§ar limpo neste PC. Compras/vendas/caixa
+              Use quando quiser começar limpo neste PC. Compras/vendas/caixa
               antigos continuam no servidor e podem ser consultados na aba{' '}
-              <strong className="text-ink-200">Dados antigos</strong> (sÃ³
+              <strong className="text-ink-200">Dados antigos</strong> (só
               leitura + PDF).
             </p>
             <Switch
-              label="Manter configuraÃ§Ãµes da empresa"
+              label="Manter configurações da empresa"
               checked={preserveSettingsOnWipe}
               onChange={setPreserveSettingsOnWipe}
             />
@@ -912,7 +912,7 @@ export function SettingsPage() {
               className="rounded-lg border border-red-500/50 bg-red-900/50 px-4 py-2.5 text-sm font-semibold text-red-100 transition hover:bg-red-800/60 disabled:cursor-not-allowed disabled:opacity-40"
               onClick={runWipe}
             >
-              {wiping ? 'Zerandoâ€¦' : 'Zerar todos os dados locais'}
+              {wiping ? 'Zerando…' : 'Zerar todos os dados locais'}
             </button>
           </Section>
         </div>
@@ -935,7 +935,7 @@ export function SettingsPage() {
                   )
                 }
               >
-                <option value="auto">AutomÃ¡tico (recomendado)</option>
+                <option value="auto">Automático (recomendado)</option>
                 <option value="manual">Manual</option>
               </select>
             </Field>
@@ -958,16 +958,16 @@ export function SettingsPage() {
             </Field>
           </Section>
 
-          <Section title="Aplicativo" hint="VersÃ£o, atualizaÃ§Ã£o e backup tÃ©cnico.">
+          <Section title="Aplicativo" hint="Versão, atualização e backup técnico.">
             <div className="rounded-lg border border-white/10 bg-ink-900/40 px-3 py-3 text-sm">
               <p>
                 <span className="text-ink-300">Nome:</span> {appInfo?.name}
               </p>
               <p className="mt-1">
-                <span className="text-ink-300">VersÃ£o:</span> {appInfo?.version}
+                <span className="text-ink-300">Versão:</span> {appInfo?.version}
               </p>
               <p className="mt-1 break-all text-xs">
-                <span className="text-ink-300">SQLite:</span> {appInfo?.dbPath ?? 'â€”'}
+                <span className="text-ink-300">SQLite:</span> {appInfo?.dbPath ?? '—'}
               </p>
             </div>
             {updateMsg && (
@@ -986,14 +986,14 @@ export function SettingsPage() {
             )}
             <div className="flex flex-wrap gap-2">
               <PrimaryButton type="button" onClick={checkUpdates}>
-                Verificar atualizaÃ§Ãµes
+                Verificar atualizações
               </PrimaryButton>
               {updatePhase === 'available' && (
                 <PrimaryButton
                   type="button"
                   onClick={() => {
                     setUpdatePhase('downloading');
-                    setUpdateMsg('Iniciando downloadâ€¦');
+                    setUpdateMsg('Iniciando download…');
                     void window.ferrogestor?.downloadUpdate();
                   }}
                 >

@@ -123,7 +123,7 @@ export async function runSyncCycle(opts?: {
 
   if (!getConfiguredDatabaseUrl()) {
     store.online = false;
-    store.lastError = 'PostgreSQL nÃ£o configurado â€” trabalhando offline';
+    store.lastError = 'PostgreSQL não configurado — trabalhando offline';
     store.lastPullOperations = [];
     writeStore(store);
     return getSyncSnapshot();
@@ -146,8 +146,8 @@ export async function runSyncCycle(opts?: {
   if (!online) {
     store.lastError =
       healthDetail?.includes('Authentication failed')
-        ? 'PostgreSQL recusou login â€” confira usuÃ¡rio/senha em ConfiguraÃ§Ãµes â†’ Banco online'
-        : healthDetail ?? 'Servidor indisponÃ­vel â€” trabalhando offline';
+        ? 'PostgreSQL recusou login — confira usuário/senha em Configurações → Banco online'
+        : healthDetail ?? 'Servidor indisponível — trabalhando offline';
     store.lastPullOperations = [];
     writeStore(store);
     return getSyncSnapshot();
@@ -170,7 +170,7 @@ export async function runSyncCycle(opts?: {
   const userId = ids.userId;
   const deviceId = ids.deviceId || auth.deviceId;
   if (!companyId || !userId || !deviceId) {
-    store.lastError = 'SessÃ£o central incompleta â€” reconecte em ConfiguraÃ§Ãµes â†’ Banco online';
+    store.lastError = 'Sessão central incompleta — reconecte em Configurações → Banco online';
     store.lastPullOperations = [];
     writeStore(store);
     return { ...getSyncSnapshot(), skipped: true, reason: 'no-session' };
@@ -178,13 +178,13 @@ export async function runSyncCycle(opts?: {
 
   const core = await getSyncCore();
   if (!core) {
-    store.lastError = 'NÃ£o foi possÃ­vel abrir o nÃºcleo de sincronizaÃ§Ã£o';
+    store.lastError = 'Não foi possível abrir o núcleo de sincronização';
     store.lastPullOperations = [];
     writeStore(store);
     return getSyncSnapshot();
   }
 
-  // Local-first: conflitos anteriores voltam pra fila com versÃ£o maior
+  // Local-first: conflitos anteriores voltam pra fila com versão maior
   if (preferLocal) {
     for (const op of store.pending) {
       if (op.status === 'CONFLICT') {
@@ -231,7 +231,7 @@ export async function runSyncCycle(opts?: {
           if (preferLocal) {
             op.status = 'PENDING';
             op.version = Math.max(1, Number(op.version) || 1) + 1;
-            op.lastError = 'Conflito â€” reenviando com prioridade local';
+            op.lastError = 'Conflito — reenviando com prioridade local';
           } else {
             op.status = 'CONFLICT';
             conflicts += 1;
@@ -286,13 +286,13 @@ export async function runSyncCycle(opts?: {
   }
 
   store.lastPullOperations = pullOperations;
-  // SÃ³ avanÃ§a o cursor se o pull ok (evita â€œpularâ€ dados do outro PC)
+  // Só avança o cursor se o pull ok (evita “pular” dados do outro PC)
   if (!pullFailed) {
     store.lastSyncAt = new Date().toISOString();
   }
   store.lastError =
     errors > 0
-      ? 'HÃ¡ operaÃ§Ãµes com erro â€” a fila continua tentando'
+      ? 'Há operações com erro — a fila continua tentando'
       : pullFailed
         ? `Push ok; pull falhou: ${pullError}`
         : null;
@@ -324,7 +324,7 @@ export async function importFromDevice(deviceId: string): Promise<
     const db = await getCentralPrisma();
     const auth = readSyncAuth();
     if (!db || !auth.companyId) {
-      return { ok: false, error: 'PostgreSQL nÃ£o configurado ou sem empresa.' };
+      return { ok: false, error: 'PostgreSQL não configurado ou sem empresa.' };
     }
     if (!deviceId.trim()) {
       return { ok: false, error: 'Informe o dispositivo de origem.' };
@@ -402,10 +402,10 @@ export async function resolveSyncConflict(input: {
 }) {
   const ids = getSyncSessionIds();
   if (!ids.companyId || !ids.userId) {
-    return { ok: false as const, error: 'SessÃ£o central incompleta' };
+    return { ok: false as const, error: 'Sessão central incompleta' };
   }
   const core = await getSyncCore();
-  if (!core) return { ok: false as const, error: 'Banco indisponÃ­vel' };
+  if (!core) return { ok: false as const, error: 'Banco indisponível' };
   try {
     await core.resolveConflict(
       input.conflictId,
