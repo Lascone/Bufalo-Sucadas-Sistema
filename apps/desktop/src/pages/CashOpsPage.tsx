@@ -1235,8 +1235,14 @@ export function CashOpsPage() {
         )}
 
         {showOperatorPicker && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-            <div className="w-full max-w-lg rounded-2xl border border-white/15 bg-ink-900 shadow-panel">
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+            onClick={() => setShowOperatorPicker(false)}
+          >
+            <div
+              className="w-full max-w-lg rounded-2xl border border-white/15 bg-ink-900 shadow-panel"
+              onClick={(e) => e.stopPropagation()}
+            >
               <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
                 <h3 className="font-semibold text-ink-50">
                   Trocar quem está no caixa
@@ -2419,8 +2425,14 @@ export function CashOpsPage() {
       <ContextMenu menu={menu} onClose={closeMenu} />
 
       {showOperatorPicker && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-white/15 bg-ink-900 shadow-panel">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setShowOperatorPicker(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-white/15 bg-ink-900 shadow-panel"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
               <h3 className="font-semibold text-ink-50">Trocar quem está no caixa</h3>
               <button

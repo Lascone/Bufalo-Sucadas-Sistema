@@ -162,9 +162,58 @@ function writeDataStore(data: DataStore, _reason: string): void {
   cache = { ...data };
   const dir = getDataDir();
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  const tmp = storePath() + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(cache, null, 2), 'utf8');
-  fs.renameSync(tmp, storePath());
+  const target = storePath();
+  const tmp = target + '.tmp';
+
+  // Proteção vital contra wipe acidental:
+  // Nunca sobrescreve dados existentes com dados vazios a menos que seja um comando explícito de wipe.
+  const isExplicitWipe = _reason === 'wipe' || _reason === 'manual-wipe';
+  if (!isExplicitWipe && fs.existsSync(target)) {
+    try {
+      const existing = readJsonFile(target);
+      if (existing) {
+        const existingRecords = totalRecords(countRecords(existing));
+        const newRecords = totalRecords(countRecords(cache));
+        if (existingRecords > 0 && newRecords === 0) {
+          console.warn(
+            `[data-store] Bloqueada tentativa de sobrescrever ${existingRecords} registros por 0 (motivo: ${_reason})!`,
+          );
+          return;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const content = JSON.stringify(cache, null, 2);
+  fs.writeFileSync(tmp, content, 'utf8');
+
+  // No Windows, renameSync pode falhar temporariamente por antivírus/file lock
+  let renamed = false;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      fs.renameSync(tmp, target);
+      renamed = true;
+      break;
+    } catch (err) {
+      if (attempt === 4) {
+        try {
+          fs.copyFileSync(tmp, target);
+          fs.unlinkSync(tmp);
+          renamed = true;
+        } catch (copyErr) {
+          console.error('[data-store] Erro crítico ao gravar dados no disco:', copyErr);
+        }
+      } else {
+        // Pausa síncrona curta antes de tentar de novo
+        const start = Date.now();
+        while (Date.now() - start < 30) {
+          /* spin wait 30ms */
+        }
+      }
+    }
+  }
 }
 
 export function schedulePersist(data: DataStore): void {
@@ -187,7 +236,8 @@ export function persistNow(data: DataStore, reason = 'manual'): void {
 export function mergeDataStore(partial: DataStore, reason: string): DataStore {
   const current = loadDataStore();
   const merged = { ...current, ...partial };
-  persistNow(merged, reason);
+  // Usa schedulePersist para evitar múltiplos acessos síncronos simultâneos ao disco em cliques rápidos
+  schedulePersist(merged);
   return merged;
 }
 

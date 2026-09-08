@@ -124,6 +124,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleTheme: () =>
     set((s) => ({ theme: s.theme === 'dark' ? 'light' : 'dark' })),
   setOperator: (operatorId) => {
+    if (get().session.operatorId === operatorId) return;
     const op = getOperator(operatorId);
     if (!op) return;
     persistOperatorId(op.id);
@@ -136,6 +137,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
   clearOperator: () => {
+    if (!get().session.operatorId) return;
     persistOperatorId(null);
     set((s) => ({
       session: {

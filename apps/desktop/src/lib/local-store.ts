@@ -95,6 +95,18 @@ export function loadJson<T>(key: string, fallback: T): T {
 export function saveJson<T>(key: string, value: T): void {
   const full = PREFIX + key;
   if (!memoryCache) memoryCache = {};
+
+  // Se o valor for estritamente igual ao cache atual, não redispara persistência nem I/O
+  const prev = memoryCache[full];
+  if (prev !== undefined) {
+    if (prev === value) return;
+    try {
+      if (JSON.stringify(prev) === JSON.stringify(value)) return;
+    } catch {
+      // continua se JSON.stringify falhar por algum motivo
+    }
+  }
+
   memoryCache[full] = value as unknown;
 
   try {

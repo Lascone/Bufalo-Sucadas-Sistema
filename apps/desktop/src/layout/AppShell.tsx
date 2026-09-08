@@ -29,12 +29,12 @@ const nav = [
   { to: '/materiais', label: 'Materiais', icon: Boxes },
   { to: '/caixa', label: 'Caixa', icon: Banknote },
   { to: '/vendas', label: 'Vendas', icon: Building2 },
-  { to: '/patio', label: 'PÃ¡tio', icon: Container },
+  { to: '/patio', label: 'Pátio', icon: Container },
   { to: '/financeiro', label: 'Financeiro', icon: Wallet },
-  { to: '/sincronizacao', label: 'SincronizaÃ§Ã£o', icon: RefreshCw },
+  { to: '/sincronizacao', label: 'Sincronização', icon: RefreshCw },
   { to: '/conflitos', label: 'Conflitos', icon: AlertTriangle },
   { to: '/dados-antigos', label: 'Dados antigos', icon: Archive },
-  { to: '/configuracoes', label: 'ConfiguraÃ§Ãµes', icon: Settings },
+  { to: '/configuracoes', label: 'Configurações', icon: Settings },
 ];
 
 export function AppShell() {
@@ -127,13 +127,13 @@ export function AppShell() {
           >
             <img
               src="./icon.png"
-              alt="BÃºfalo Sucatas"
+              alt="Búfalo Sucatas"
               className="h-10 w-10 shrink-0 rounded-xl border border-brand-500/40 object-cover shadow-panel"
             />
             {!sidebarCollapsed && (
               <div className="min-w-0 flex-1">
                 <p className="font-display text-xl leading-none tracking-wide text-brand-400">
-                  BÃšFALO
+                  BÚFALO
                 </p>
                 <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-moss-400">
                   Sucatas
@@ -191,7 +191,7 @@ export function AppShell() {
           <div className="border-t border-white/10 p-2">
             <img
               src="./logo.png"
-              alt="Logo BÃºfalo Sucatas"
+              alt="Logo Búfalo Sucatas"
               className="mx-auto max-h-14 w-auto rounded-lg opacity-95"
             />
           </div>
