@@ -26,7 +26,7 @@ export default defineConfig({
         return html.replace(/\s+crossorigin/g, '');
       },
     },
-    electron({
+    (electron as any)({
       main: {
         entry: 'electron/main.ts',
         vite: {
