@@ -50,7 +50,7 @@ export async function initLocalStore(): Promise<{
     return { source: 'file', totalRecords: countEntries(memoryCache) };
   }
 
-  if (window.ferrogestor?.loadDataStore) {
+  if (typeof window !== 'undefined' && window.ferrogestor?.loadDataStore) {
     const { data, stats } = await window.ferrogestor.loadDataStore();
     const total =
       (stats as { total?: number } | undefined)?.total ?? countEntries(data);
@@ -63,7 +63,7 @@ export async function initLocalStore(): Promise<{
   const fromLs = readLocalStorageAll();
   const lsTotal = countEntries(fromLs);
   if (lsTotal > 0) {
-    if (window.ferrogestor?.importAllData) {
+    if (typeof window !== 'undefined' && window.ferrogestor?.importAllData) {
       await window.ferrogestor.importAllData(fromLs);
     }
     reloadLocalStore(fromLs);
@@ -96,17 +96,6 @@ export function saveJson<T>(key: string, value: T): void {
   const full = PREFIX + key;
   if (!memoryCache) memoryCache = {};
 
-  // Se o valor for estritamente igual ao cache atual, não redispara persistência nem I/O
-  const prev = memoryCache[full];
-  if (prev !== undefined) {
-    if (prev === value) return;
-    try {
-      if (JSON.stringify(prev) === JSON.stringify(value)) return;
-    } catch {
-      // continua se JSON.stringify falhar por algum motivo
-    }
-  }
-
   memoryCache[full] = value as unknown;
 
   try {
@@ -115,7 +104,7 @@ export function saveJson<T>(key: string, value: T): void {
     // file store is primary in Electron
   }
 
-  if (window.ferrogestor?.persistData) {
+  if (typeof window !== 'undefined' && window.ferrogestor?.persistData) {
     void window.ferrogestor.persistData({ [full]: value as unknown });
   }
 }
@@ -164,7 +153,7 @@ export async function enqueueSyncOp(input: {
     status: 'PENDING' as const,
   };
 
-  if (window.ferrogestor?.enqueueSync) {
+  if (typeof window !== 'undefined' && window.ferrogestor?.enqueueSync) {
     await window.ferrogestor.enqueueSync(op);
   } else {
     const pending = loadJson<unknown[]>('offline-sync-queue', []);
@@ -185,9 +174,15 @@ export async function reloadFromDisk(): Promise<number> {
 export async function importFromLocalStorage(): Promise<number> {
   const fromLs = readLocalStorageAll();
   const total = countEntries(fromLs);
-  if (window.ferrogestor?.importAllData && total > 0) {
+  if (typeof window !== 'undefined' && window.ferrogestor?.importAllData && total > 0) {
     await window.ferrogestor.importAllData(fromLs);
   }
   reloadLocalStore(fromLs);
   return total;
+}
+
+/** Reseta o cache em memória após wipe local. */
+export function resetMemoryStore(preserved?: Record<string, unknown>): void {
+  memoryCache = preserved ? { ...preserved } : {};
+  initDone = true;
 }

@@ -66,12 +66,14 @@ export function wipeUserDataFolders(opts?: {
 
   if (clearSyncQueue) {
     const syncFile = path.join(getDataDir(), 'sync-queue.json');
+    const nowIso = new Date().toISOString();
     fs.writeFileSync(
       syncFile,
       JSON.stringify(
         {
           pending: [],
-          lastSyncAt: null,
+          lastSyncAt: nowIso,
+          lastPullAt: nowIso,
           lastError: null,
           online: null,
           history: [],

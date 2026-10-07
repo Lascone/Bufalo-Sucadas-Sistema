@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { applyRemoteOperations } from './sync-apply';
+import { resetMemoryStore } from './local-store';
 
 const PREFIX = 'ferrogestor:';
 
@@ -27,6 +28,7 @@ function installLocalStorageMock() {
 
 describe('applyRemoteOperations (2 PCs / pull)', () => {
   beforeEach(() => {
+    resetMemoryStore();
     memory.clear();
     installLocalStorageMock();
   });

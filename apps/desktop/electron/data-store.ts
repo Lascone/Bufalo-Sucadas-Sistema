@@ -105,9 +105,9 @@ export function migrateFromLegacyProfiles(): {
   totalRecords: number;
 } {
   const currentPath = storePath();
-  const current = readJsonFile(currentPath);
-  const currentTotal = current ? totalRecords(countRecords(current)) : 0;
-  if (currentTotal > 0) {
+  if (fs.existsSync(currentPath)) {
+    const current = readJsonFile(currentPath);
+    const currentTotal = current ? totalRecords(countRecords(current)) : 0;
     return { imported: false, fromDir: null, totalRecords: currentTotal };
   }
 
@@ -139,7 +139,7 @@ export function loadDataStore(): DataStore {
   if (cache) return { ...cache };
 
   const primary = readJsonFile(storePath());
-  if (primary && totalRecords(countRecords(primary)) > 0) {
+  if (primary !== null) {
     cache = primary;
     return { ...cache };
   }
@@ -154,7 +154,35 @@ export function loadDataStore(): DataStore {
     }
   }
 
-  cache = primary ?? {};
+  cache = {};
+  return { ...cache };
+}
+
+/**
+ * Zera o arquivo de dados local (app-data.json) e o cache em memória do Electron.
+ * Se preserveSettings for true, mantém apenas configurações da empresa.
+ */
+export function wipeDataStore(opts?: { preserveSettings?: boolean }): DataStore {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  const preserveSettings = opts?.preserveSettings !== false;
+  const current = readJsonFile(storePath()) ?? cache ?? {};
+  const nextData: DataStore = {};
+  if (preserveSettings) {
+    const settingsKey = PREFIX + 'settings';
+    const settingsIdKey = PREFIX + 'settings-entity-id';
+    if (current[settingsKey] !== undefined) {
+      nextData[settingsKey] = current[settingsKey];
+    }
+    if (current[settingsIdKey] !== undefined) {
+      nextData[settingsIdKey] = current[settingsIdKey];
+    }
+  }
+  nextData['_wipedAt'] = new Date().toISOString();
+  cache = { ...nextData };
+  writeDataStore(cache, 'wipe');
   return { ...cache };
 }
 

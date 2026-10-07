@@ -1,6 +1,6 @@
 {
   "name": "@ferrogestor/desktop",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "main": "dist-electron/main.js",
   "private": true,
   "description": "Búfalo Sucata Gestor — Bufalo Sucatas",
@@ -42,7 +42,7 @@
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
-    "electron": "^34.0.1",
+    "electron": "34.5.8",
     "electron-builder": "^25.1.8",
     "postcss": "^8.5.1",
     "tailwindcss": "^3.4.17",
@@ -55,6 +55,8 @@
   "build": {
     "appId": "br.com.bufalosucatas.gestor",
     "productName": "Bufalo Sucata Gestor",
+    "electronVersion": "34.5.8",
+    "npmRebuild": false,
     "copyright": "Copyright © Bufalo Sucatas",
     "extraMetadata": {
       "name": "bufalo-sucata-gestor"

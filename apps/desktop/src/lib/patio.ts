@@ -239,6 +239,51 @@ export async function applyAdjustmentOut(input: {
   return row;
 }
 
+/**
+ * Baixa avulsa de estoque no pátio (OUT ADJUSTMENT) não vinculada a compra.
+ * Usada para zerar saldo remanescente ou ajustar inventário físico.
+ */
+export async function recordStockAdjustmentOut(input: {
+  materialId: string;
+  materialName?: string;
+  weight: number;
+  reason?: string;
+  operator?: string;
+  at?: string;
+}): Promise<PatioMovement> {
+  const weight = Math.round(input.weight * 1000) / 1000;
+  if (!(weight > 0)) throw new Error('Informe um peso válido para a baixa.');
+
+  const all = listMovements();
+  const matName =
+    input.materialName ||
+    all.find((m) => m.materialId === input.materialId)?.materialName ||
+    'Material';
+  const avgCost = getAvgCost(input.materialId);
+
+  const row: PatioMovement = {
+    id: newId(),
+    materialId: input.materialId,
+    materialName: matName,
+    kind: 'OUT',
+    weight,
+    unitCost: avgCost,
+    sourceType: 'ADJUSTMENT',
+    sourceId: 'adjustment-zero',
+    at: input.at ?? new Date().toISOString(),
+    notes: input.reason?.trim() || undefined,
+  };
+  all.unshift(row);
+  persist(all);
+  await enqueueSyncOp({
+    entityType: 'PatioMovement',
+    entityId: row.id,
+    action: 'CREATE',
+    payload: row as unknown as Record<string, unknown>,
+  });
+  return row;
+}
+
 /** Lotes FIFO com kg restante por compra+material. */
 export function listPurchaseLotsByMaterial(
   materialId: string,

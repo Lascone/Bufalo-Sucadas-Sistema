@@ -1,4 +1,4 @@
-import { PREFIX } from './local-store';
+import { PREFIX, resetMemoryStore } from './local-store';
 
 const SETTINGS_KEYS = new Set(['settings', 'settings-entity-id']);
 
@@ -65,15 +65,39 @@ export async function wipeLocalData(
   }
 
   const removedKeys: string[] = [];
+  const preservedMemory: Record<string, unknown> = {};
 
   for (let i = localStorage.length - 1; i >= 0; i--) {
     const full = localStorage.key(i);
-    if (!full?.startsWith(PREFIX)) continue;
-    const logical = full.slice(PREFIX.length);
-    if (preserveSettings && SETTINGS_KEYS.has(logical)) continue;
-    localStorage.removeItem(full);
-    removedKeys.push(logical);
+    if (!full) continue;
+    if (full.startsWith(PREFIX)) {
+      const logical = full.slice(PREFIX.length);
+      if (preserveSettings && SETTINGS_KEYS.has(logical)) {
+        try {
+          preservedMemory[full] = JSON.parse(localStorage.getItem(full) || 'null');
+        } catch {
+          // ignore
+        }
+        continue;
+      }
+      localStorage.removeItem(full);
+      removedKeys.push(logical);
+    } else {
+      if (full.startsWith('bufalo-') || full === 'active-operator-id') {
+        localStorage.removeItem(full);
+        removedKeys.push(full);
+      }
+    }
   }
+
+  try {
+    sessionStorage.clear();
+  } catch {
+    /* ignore */
+  }
+
+  // Reseta memória local imediatamente
+  resetMemoryStore(preservedMemory);
 
   let diskCleared: string[] = [];
   if (window.ferrogestor?.wipeUserData) {
@@ -83,6 +107,8 @@ export async function wipeLocalData(
       clearBackups: true,
       clearSyncQueue: true,
       clearSqlite: true,
+      clearDataStore: true,
+      preserveSettings,
     });
     diskCleared = disk.cleared;
   } else {

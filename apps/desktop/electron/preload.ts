@@ -115,6 +115,8 @@ export type FerroGestorApi = {
     clearBackups?: boolean;
     clearSyncQueue?: boolean;
     clearSqlite?: boolean;
+    clearDataStore?: boolean;
+    preserveSettings?: boolean;
   }) => Promise<{ ok: true; cleared: string[] }>;
   archiveRotateOnWipe: (payload?: {
     note?: string;

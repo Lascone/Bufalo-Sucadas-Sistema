@@ -445,7 +445,87 @@ export async function reduceMaterialStockFifo(input: {
   };
 }
 
-/** Zera o material no pátio (todos os lotes FIFO até o saldo disponível). */
+/**
+ * Zera COMPLETAMENTE o estoque do material no pátio:
+ * 1. Se houver lotes de compra FIFO, baixa via compras e ajusta o caixa.
+ * 2. Se restar saldo no pátio (proveniente de ajustes ou saldo residual), dá baixa direta OUT ADJUSTMENT.
+ * Garante que o saldo final do material no pátio seja exatamente 0 kg.
+ */
+export async function zeroMaterialCompletely(input: {
+  materialId: string;
+  reason?: string;
+  operator?: string;
+}): Promise<{
+  totalReducedKg: number;
+  fifoReducedKg: number;
+  adjustmentReducedKg: number;
+  refundValue: number;
+  lotsTouched: Array<{ purchaseId: string; kg: number; deleted: boolean }>;
+}> {
+  const { getMaterialBalance, recordStockAdjustmentOut } = await import(
+    './patio'
+  );
+  const bal = getMaterialBalance(input.materialId);
+  const currentPatioKg = bal?.weight ?? 0;
+  if (currentPatioKg <= 0.0005) {
+    throw new Error('Material já está zerado no pátio.');
+  }
+
+  let fifoReducedKg = 0;
+  let refundValue = 0;
+  let lotsTouched: Array<{ purchaseId: string; kg: number; deleted: boolean }> =
+    [];
+
+  const available = availableFifoKg(input.materialId);
+  if (available > 0.0005) {
+    try {
+      const res = await reduceMaterialStockFifo({
+        materialId: input.materialId,
+        weight: available,
+        reason:
+          input.reason?.trim() ||
+          `Zerar material FIFO${input.operator ? ` · ${input.operator}` : ''}`,
+        operator: input.operator,
+      });
+      fifoReducedKg = res.reducedKg;
+      refundValue = res.refundValue;
+      lotsTouched = res.lotsTouched;
+    } catch (err) {
+      console.warn(
+        '[zeroMaterialCompletely] FIFO parcial ou falhou, prosseguindo com ajuste avulso:',
+        err,
+      );
+    }
+  }
+
+  let adjustmentReducedKg = 0;
+  const remBal = getMaterialBalance(input.materialId);
+  if (remBal && remBal.weight > 0.0005) {
+    const remWeight = remBal.weight;
+    await recordStockAdjustmentOut({
+      materialId: input.materialId,
+      materialName: remBal.materialName,
+      weight: remWeight,
+      reason:
+        input.reason?.trim() ||
+        `Zerar saldo restante no pátio${input.operator ? ` · ${input.operator}` : ''}`,
+      operator: input.operator,
+    });
+    adjustmentReducedKg = remWeight;
+  }
+
+  const totalReducedKg =
+    Math.round((fifoReducedKg + adjustmentReducedKg) * 1000) / 1000;
+  return {
+    totalReducedKg,
+    fifoReducedKg,
+    adjustmentReducedKg,
+    refundValue,
+    lotsTouched,
+  };
+}
+
+/** Zera o material no pátio por completo (FIFO de compras + baixa de eventual saldo residual). */
 export async function zeroMaterialPurchaseLots(input: {
   materialId: string;
   reason?: string;
@@ -457,18 +537,14 @@ export async function zeroMaterialPurchaseLots(input: {
   availableKg: number;
   lotsTouched: Array<{ purchaseId: string; kg: number; deleted: boolean }>;
 }> {
-  const available = availableFifoKg(input.materialId);
-  if (available <= 0.0005) {
-    throw new Error('Material já está zerado no pátio.');
-  }
-  return reduceMaterialStockFifo({
-    materialId: input.materialId,
-    weight: available,
-    reason:
-      input.reason?.trim() ||
-      `Zerar material${input.operator ? ` · ${input.operator}` : ''}`,
-    operator: input.operator,
-  });
+  const r = await zeroMaterialCompletely(input);
+  return {
+    reducedKg: r.totalReducedKg,
+    refundValue: r.refundValue,
+    targetKg: r.totalReducedKg,
+    availableKg: r.totalReducedKg,
+    lotsTouched: r.lotsTouched,
+  };
 }
 
 /**

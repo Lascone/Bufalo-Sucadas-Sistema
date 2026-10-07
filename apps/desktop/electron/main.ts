@@ -26,6 +26,7 @@ import {
   createDataBackup,
   restoreFromFile,
   migrateFromLegacyProfiles,
+  wipeDataStore,
 } from './data-store';
 import { runDataDiagnostic } from './data-recovery';
 import { startAutoBackupScheduler } from './backup-scheduler';
@@ -310,8 +311,18 @@ function registerIpc() {
         clearBackups?: boolean;
         clearSyncQueue?: boolean;
         clearSqlite?: boolean;
+        clearDataStore?: boolean;
+        preserveSettings?: boolean;
       },
-    ) => wipeUserDataFolders(opts),
+    ) => {
+      const cleared: string[] = [];
+      if (opts?.clearDataStore !== false) {
+        wipeDataStore({ preserveSettings: opts?.preserveSettings });
+        cleared.push('data-store');
+      }
+      const disk = wipeUserDataFolders(opts);
+      return { ok: true, cleared: [...cleared, ...disk.cleared] };
+    },
   );
 
   ipcMain.handle(

@@ -12,7 +12,7 @@ import { ReportFilters } from '../components/ReportFilters';
 import { ContextMenu, useContextMenu } from '../components/ContextMenu';
 import { MaterialThumb } from '../components/MaterialThumb';
 import { getMaterial } from '../lib/materials';
-import { getPurchase, reducePurchaseStock, reduceMaterialStockFifo, zeroMaterialPurchaseLots, availableFifoKg, undoPurchaseStockAdjustment } from '../lib/purchases';
+import { getPurchase, reducePurchaseStock, reduceMaterialStockFifo, zeroMaterialPurchaseLots, zeroMaterialCompletely, availableFifoKg, undoPurchaseStockAdjustment } from '../lib/purchases';
 import {
   getPatioBalances,
   getMaterialBalance,
@@ -222,29 +222,29 @@ export function PatioPage() {
 
   const confirmZeroMaterial = (materialIdSel: string) => {
     const bal = getMaterialBalance(materialIdSel);
-    const available = availableFifoKg(materialIdSel);
+    const currentWeight = bal?.weight ?? 0;
     const name = bal?.materialName ?? 'Material';
-    if (available <= 0.0005) {
+    if (currentWeight <= 0.0005) {
       setError('Material já está zerado no pátio.');
       return;
     }
     if (
       !confirm(
-        `Zerar ${name}?\n\nVai baixar ${available.toFixed(3)} kg (FIFO do mais antigo) e ajustar as compras/caixa.\nEsta ação não desfaz de uma vez — dá para desfazer baixas no relatório.`,
+        `Zerar ${name}?\n\nSaldo atual no pátio: ${currentWeight.toFixed(3)} kg.\nVai baixar todo o estoque deste material no pátio (FIFO de compras + baixa de eventual saldo restante).\nEsta ação não desfaz de uma vez — dá para desfazer baixas no relatório.`,
       )
     ) {
       return;
     }
     setError(null);
     setInfo(null);
-    void zeroMaterialPurchaseLots({
+    void zeroMaterialCompletely({
       materialId: materialIdSel,
       reason: 'Zerar material no pátio',
       operator: operatorName || undefined,
     })
       .then((r) => {
         setInfo(
-          `Zerado: ${name} −${r.reducedKg.toFixed(3)} kg em ${r.lotsTouched.length} lote(s) (−${money(r.refundValue)}).`,
+          `Zerado: ${name} −${r.totalReducedKg.toFixed(3)} kg baixados (saldo agora: 0 kg).`,
         );
         refresh();
         if (materialId === materialIdSel) {
@@ -254,6 +254,40 @@ export function PatioPage() {
         }
       })
       .catch((e: Error) => setError(e.message));
+  };
+
+  const confirmZeroAllPatio = async () => {
+    if (balances.length === 0) return;
+    const totalKg = balances.reduce((a, b) => a + b.weight, 0);
+    if (
+      !confirm(
+        `Zerar todo o pátio?\n\nSerão zerados ${balances.length} materiais (${totalKg.toFixed(3)} kg no total).\nDeseja prosseguir?`,
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setInfo(null);
+    let count = 0;
+    let totalDown = 0;
+    for (const b of balances) {
+      try {
+        const r = await zeroMaterialCompletely({
+          materialId: b.materialId,
+          reason: 'Zerar todo o pátio',
+          operator: operatorName || undefined,
+        });
+        count++;
+        totalDown += r.totalReducedKg;
+      } catch (e) {
+        console.warn('Erro ao zerar material', b.materialName, e);
+      }
+    }
+    setInfo(`Pátio zerado: ${count} material(is) zerados (−${totalDown.toFixed(3)} kg).`);
+    refresh();
+    setMaterialId('');
+    setPurchaseId('');
+    setKg('');
   };
 
   const balanceMenu = (materialIdSel: string) => [
@@ -342,7 +376,19 @@ export function PatioPage() {
       )}
 
       <PlaceholderCard className="!p-3">
-        <h2 className="mb-2 text-sm font-semibold text-ink-50">Saldo atual</h2>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-semibold text-ink-50">Saldo atual</h2>
+          {balances.length > 0 && (
+            <button
+              type="button"
+              onClick={confirmZeroAllPatio}
+              className="text-xs text-red-400 hover:text-red-300 font-medium px-2 py-0.5 rounded border border-red-500/30 hover:bg-red-950/40 transition"
+              title="Zerar o estoque de todos os materiais no pátio"
+            >
+              Zerar todo o pátio
+            </button>
+          )}
+        </div>
         {balances.length === 0 ? (
           <p className="text-sm text-ink-300">
             Pátio vazio. Compre sucata no Caixa para entrar material.
