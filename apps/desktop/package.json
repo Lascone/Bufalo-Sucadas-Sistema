@@ -1,6 +1,6 @@
 {
   "name": "@ferrogestor/desktop",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "main": "dist-electron/main.js",
   "private": true,
   "description": "Búfalo Sucata Gestor — Bufalo Sucatas",
