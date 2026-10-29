@@ -41,20 +41,43 @@ export function readSyncAuth(): SyncAuthFile {
     writeSyncAuth(base);
     return base;
   }
-  const stored = JSON.parse(fs.readFileSync(p, 'utf8')) as Partial<SyncAuthFile> & {
-    accessToken?: string | null;
-    apiBase?: string;
-  };
-  return {
-    ...base,
-    ...stored,
-    deviceId: stored.deviceId || base.deviceId,
-    deviceName: stored.deviceName || base.deviceName,
-  };
+  try {
+    const raw = fs.readFileSync(p, 'utf8').replace(/\0/g, '').trim();
+    if (!raw) {
+      writeSyncAuth(base);
+      return base;
+    }
+    const stored = JSON.parse(raw) as Partial<SyncAuthFile> & {
+      accessToken?: string | null;
+      apiBase?: string;
+    };
+    return {
+      ...base,
+      ...stored,
+      deviceId: stored.deviceId || base.deviceId,
+      deviceName: stored.deviceName || base.deviceName,
+    };
+  } catch {
+    writeSyncAuth(base);
+    return base;
+  }
 }
 
 export function writeSyncAuth(auth: SyncAuthFile): void {
-  fs.writeFileSync(authPath(), JSON.stringify(auth, null, 2), 'utf8');
+  const p = authPath();
+  const dir = path.dirname(p);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const tmp = p + '.tmp';
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(auth, null, 2), 'utf8');
+    fs.renameSync(tmp, p);
+  } catch {
+    try {
+      fs.writeFileSync(p, JSON.stringify(auth, null, 2), 'utf8');
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export function getSyncAuthStatus() {

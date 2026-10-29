@@ -7,12 +7,16 @@ let initDone = false;
 
 function readLocalStorageAll(): Record<string, unknown> {
   const out: Record<string, unknown> = {};
+  if (typeof localStorage === 'undefined') return out;
   for (let i = 0; i < localStorage.length; i += 1) {
     const k = localStorage.key(i);
     if (!k?.startsWith(PREFIX)) continue;
     try {
       const raw = localStorage.getItem(k);
-      if (raw != null) out[k] = JSON.parse(raw) as unknown;
+      if (raw != null) {
+        const clean = raw.replace(/\0/g, '').trim();
+        if (clean) out[k] = JSON.parse(clean) as unknown;
+      }
     } catch {
       // skip corrupted key
     }
@@ -32,11 +36,13 @@ function countEntries(data: Record<string, unknown>): number {
 
 function reloadLocalStore(data: Record<string, unknown>): void {
   memoryCache = { ...data };
-  for (const [full, val] of Object.entries(data)) {
-    try {
-      localStorage.setItem(full, JSON.stringify(val));
-    } catch {
-      // localStorage quota — file store is primary
+  if (typeof localStorage !== 'undefined') {
+    for (const [full, val] of Object.entries(data)) {
+      try {
+        localStorage.setItem(full, JSON.stringify(val));
+      } catch {
+        // localStorage quota — file store is primary
+      }
     }
   }
   initDone = true;
@@ -80,10 +86,13 @@ export function loadJson<T>(key: string, fallback: T): T {
   if (memoryCache && full in memoryCache) {
     return memoryCache[full] as T;
   }
+  if (typeof localStorage === 'undefined') return fallback;
   try {
     const raw = localStorage.getItem(full);
     if (!raw) return fallback;
-    const parsed = JSON.parse(raw) as T;
+    const clean = raw.replace(/\0/g, '').trim();
+    if (!clean) return fallback;
+    const parsed = JSON.parse(clean) as T;
     if (!memoryCache) memoryCache = {};
     memoryCache[full] = parsed as unknown;
     return parsed;
@@ -96,12 +105,20 @@ export function saveJson<T>(key: string, value: T): void {
   const full = PREFIX + key;
   if (!memoryCache) memoryCache = {};
 
+  // Se for primitivo estritamente igual, não precisa regravar
+  const prev = memoryCache[full];
+  if (prev !== undefined && typeof value !== 'object' && prev === value) {
+    return;
+  }
+
   memoryCache[full] = value as unknown;
 
-  try {
-    localStorage.setItem(full, JSON.stringify(value));
-  } catch {
-    // file store is primary in Electron
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(full, JSON.stringify(value));
+    } catch {
+      // file store is primary in Electron
+    }
   }
 
   if (typeof window !== 'undefined' && window.ferrogestor?.persistData) {
@@ -154,7 +171,20 @@ export async function enqueueSyncOp(input: {
   };
 
   if (typeof window !== 'undefined' && window.ferrogestor?.enqueueSync) {
-    await window.ferrogestor.enqueueSync(op);
+    try {
+      const res = await window.ferrogestor.enqueueSync(op);
+      if (res && typeof res === 'object' && 'ok' in res && !(res as { ok: boolean }).ok) {
+        console.warn('[sync] enqueueSync retornou erro, salvando na fila local:', res);
+        const pending = loadJson<unknown[]>('offline-sync-queue', []);
+        pending.push(op);
+        saveJson('offline-sync-queue', pending);
+      }
+    } catch (err) {
+      console.warn('[sync] Falha ao comunicar com IPC de sync (salvando offline):', err);
+      const pending = loadJson<unknown[]>('offline-sync-queue', []);
+      pending.push(op);
+      saveJson('offline-sync-queue', pending);
+    }
   } else {
     const pending = loadJson<unknown[]>('offline-sync-queue', []);
     pending.push(op);

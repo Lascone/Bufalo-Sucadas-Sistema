@@ -12,7 +12,7 @@ import { ReportFilters } from '../components/ReportFilters';
 import { ContextMenu, useContextMenu } from '../components/ContextMenu';
 import { MaterialThumb } from '../components/MaterialThumb';
 import { getMaterial } from '../lib/materials';
-import { getPurchase, reducePurchaseStock, reduceMaterialStockFifo, zeroMaterialPurchaseLots, zeroMaterialCompletely, availableFifoKg, undoPurchaseStockAdjustment } from '../lib/purchases';
+import { getPurchase, reducePurchaseStock, reduceMaterialStockFifo, zeroMaterialCompletely, availableFifoKg, undoPurchaseStockAdjustment } from '../lib/purchases';
 import {
   getPatioBalances,
   getMaterialBalance,

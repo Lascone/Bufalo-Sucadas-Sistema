@@ -58,57 +58,152 @@ function storePath(): string {
   return path.join(getDataDir(), 'sync-queue.json');
 }
 
+function defaultStore(): SyncStoreFile {
+  return {
+    pending: [],
+    lastSyncAt: null,
+    lastError: null,
+    online: null,
+    lastPullAt: null,
+    history: [],
+    lastPullOperations: [],
+  };
+}
+
 function readStore(): SyncStoreFile {
   const p = storePath();
   if (!fs.existsSync(p)) {
-    return {
-      pending: [],
-      lastSyncAt: null,
-      lastError: null,
-      online: null,
-      lastPullAt: null,
-      history: [],
-    };
+    return defaultStore();
   }
-  const raw = JSON.parse(fs.readFileSync(p, 'utf8')) as SyncStoreFile;
-  return { ...raw, lastPullAt: raw.lastPullAt ?? null };
+  try {
+    const raw = fs.readFileSync(p, 'utf8');
+    // Remove qualquer byte nulo ou caractere NUL gerado em travamentos abruptos do Windows/NTFS
+    const clean = raw.replace(/\0/g, '').trim();
+    if (!clean) {
+      console.warn('[sync-engine] sync-queue.json estava vazio ou continha apenas bytes nulos. Restaurando fila limpa.');
+      const base = defaultStore();
+      writeStore(base);
+      return base;
+    }
+    const parsed = JSON.parse(clean) as SyncStoreFile;
+    return {
+      pending: Array.isArray(parsed?.pending) ? parsed.pending : [],
+      lastSyncAt: parsed?.lastSyncAt ?? null,
+      lastError: parsed?.lastError ?? null,
+      online: parsed?.online ?? null,
+      lastPullAt: parsed?.lastPullAt ?? null,
+      history: Array.isArray(parsed?.history) ? parsed.history : [],
+      lastPullOperations: Array.isArray(parsed?.lastPullOperations) ? parsed.lastPullOperations : [],
+    };
+  } catch (err) {
+    console.error('[sync-engine] Falha ao processar sync-queue.json corrompido, reparando automaticamente:', err);
+    try {
+      const corruptBackup = p + `.corrupted-${Date.now()}`;
+      fs.copyFileSync(p, corruptBackup);
+    } catch {
+      // ignore
+    }
+    const base = defaultStore();
+    writeStore(base);
+    return base;
+  }
 }
 
 function writeStore(store: SyncStoreFile): void {
-  fs.writeFileSync(storePath(), JSON.stringify(store, null, 2), 'utf8');
+  const target = storePath();
+  const dir = path.dirname(target);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const tmp = target + '.tmp';
+  const content = JSON.stringify(store, null, 2);
+
+  try {
+    fs.writeFileSync(tmp, content, 'utf8');
+    let renamed = false;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        fs.renameSync(tmp, target);
+        renamed = true;
+        break;
+      } catch (err) {
+        if (attempt === 4) {
+          try {
+            fs.copyFileSync(tmp, target);
+            fs.unlinkSync(tmp);
+            renamed = true;
+          } catch (copyErr) {
+            console.error('[sync-engine] Erro crítico ao gravar sync-queue no disco:', copyErr);
+          }
+        } else {
+          const start = Date.now();
+          while (Date.now() - start < 30) {
+            /* spin wait 30ms */
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[sync-engine] Falha ao gravar sync-queue:', err);
+    try {
+      fs.writeFileSync(target, content, 'utf8');
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export function getSyncSnapshot() {
-  const store = readStore();
-  return {
-    online: store.online,
-    lastSyncAt: store.lastSyncAt,
-    lastError: store.lastError,
-    pendingCount: store.pending.filter(
-      (o) => o.status === 'PENDING' || o.status === 'ERROR' || o.status === 'SYNCING',
-    ).length,
-    errorCount: store.pending.filter((o) => o.status === 'ERROR').length,
-    conflictCount: store.pending.filter((o) => o.status === 'CONFLICT').length,
-    history: store.history,
-    pending: store.pending,
-    lastPullOperations: store.lastPullOperations ?? [],
-  };
+  try {
+    const store = readStore();
+    return {
+      online: store.online,
+      lastSyncAt: store.lastSyncAt,
+      lastError: store.lastError,
+      pendingCount: (store.pending ?? []).filter(
+        (o) => o.status === 'PENDING' || o.status === 'ERROR' || o.status === 'SYNCING',
+      ).length,
+      errorCount: (store.pending ?? []).filter((o) => o.status === 'ERROR').length,
+      conflictCount: (store.pending ?? []).filter((o) => o.status === 'CONFLICT').length,
+      history: store.history ?? [],
+      pending: store.pending ?? [],
+      lastPullOperations: store.lastPullOperations ?? [],
+    };
+  } catch (err) {
+    console.error('[sync-engine] Erro ao obter getSyncSnapshot:', err);
+    return {
+      online: false,
+      lastSyncAt: null,
+      lastError: String(err),
+      pendingCount: 0,
+      errorCount: 0,
+      conflictCount: 0,
+      history: [],
+      pending: [],
+      lastPullOperations: [],
+    };
+  }
 }
 
 export function enqueueSyncOp(op: Omit<LocalSyncOp, 'status'> & { status?: LocalSyncOp['status'] }) {
-  const store = readStore();
-  const ids = getSyncSessionIds();
-  const patched: LocalSyncOp = {
-    ...op,
-    status: op.status ?? 'PENDING',
-    companyId: ids.companyId ?? op.companyId,
-    branchId: ids.branchId ?? op.branchId,
-    deviceId: ids.deviceId || op.deviceId,
-    userId: ids.userId ?? op.userId,
-  };
-  store.pending.push(patched);
-  writeStore(store);
-  return { ok: true, pendingCount: store.pending.length };
+  try {
+    const store = readStore();
+    const ids = getSyncSessionIds();
+    const patched: LocalSyncOp = {
+      ...op,
+      status: op.status ?? 'PENDING',
+      companyId: ids.companyId ?? op.companyId,
+      branchId: ids.branchId ?? op.branchId,
+      deviceId: ids.deviceId || op.deviceId,
+      userId: ids.userId ?? op.userId,
+    };
+    store.pending.push(patched);
+    writeStore(store);
+    return { ok: true, pendingCount: store.pending.length };
+  } catch (err) {
+    console.error('[sync-engine] Falha ao enfileirar operação de sync:', err);
+    return { ok: false, pendingCount: 0, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 export async function runSyncCycle(opts?: {
