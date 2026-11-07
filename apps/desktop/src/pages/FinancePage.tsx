@@ -1451,8 +1451,6 @@ export function FinancePage() {
                         >
                           WhatsApp
                         </GhostButton>
-                          WhatsApp
-                        </GhostButton>
                         <GhostButton
                           className="!py-1 text-xs"
                           onClick={() =>
