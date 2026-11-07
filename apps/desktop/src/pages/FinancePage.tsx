@@ -574,6 +574,9 @@ function groupToPdfInput(g: FinanceDayGroup) {
             amount: item.movement.amount,
             description: item.movement.description,
             detail: item.movement.detail,
+            notes: item.movement.notes,
+            voidedAt: item.movement.voidedAt,
+            voidReason: item.movement.voidReason,
           },
     ),
   };

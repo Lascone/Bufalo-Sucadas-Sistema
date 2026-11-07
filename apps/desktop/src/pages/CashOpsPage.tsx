@@ -414,6 +414,22 @@ export function CashOpsPage() {
     [buyItems],
   );
 
+  const movementsWithRolling = useMemo(() => {
+    if (!open) return [];
+    let bal = open.openingBalance;
+    const withBal = open.movements.map((m) => {
+      if (!m.voidedAt) {
+        if (isCashIn(m.movementType)) bal += m.amount;
+        else bal -= m.amount;
+      }
+      return {
+        ...m,
+        balanceAfter: Math.round(bal * 100) / 100,
+      };
+    });
+    return withBal.reverse();
+  }, [open?.movements, open?.openingBalance]);
+
   const draftIndex = Math.min(
     Math.max(0, activeLineIndex),
     Math.max(0, buyItems.length - 1),
@@ -1964,125 +1980,182 @@ export function CashOpsPage() {
         )}
 
         {tab === 'movimentos' && (
-          <PlaceholderCard className="!p-2">
+          <PlaceholderCard className="!p-3">
             {!open ? (
               <p className="py-4 text-center text-xs text-ink-300">
                 Caixa fechado.
               </p>
-            ) : open.movements.length === 0 ? (
-              <p className="py-4 text-center text-xs text-ink-300">
-                Nenhum lançamento neste caixa.
-              </p>
             ) : (
-              <ul className="max-h-[36rem] divide-y divide-white/5 overflow-auto">
-                {[...open.movements].reverse().map((m) => {
-                  const tone = movementTone(m.movementType);
-                  const income = isCashIn(m.movementType);
-                  const actions = [
-                    {
-                      id: 'edit',
-                      label: 'Editar',
-                      onSelect: () => {
-                        setEditMov(m);
-                        setEditAmount(String(m.amount));
-                        setEditDesc(m.description);
-                      },
-                    },
-                    {
-                      id: 'comment',
-                      label: 'Comentário',
-                      onSelect: () => {
-                        setCommentMov(m);
-                        setCommentText('');
-                      },
-                    },
-                    {
-                      id: 'del',
-                      label: 'Excluir',
-                      danger: true,
-                      onSelect: () => {
-                        if (m.refType === 'PURCHASE' && m.refId) {
-                          if (
-                            !confirm(
-                              'Excluir esta compra? Some do caixa e do pátio.',
-                            )
-                          ) {
-                            return;
-                          }
-                          void deletePurchase(m.refId)
-                            .then(() => {
-                              refresh();
-                              setInfo('Compra excluída (caixa + pátio).');
-                            })
-                            .catch((err: Error) => setError(err.message));
-                          return;
-                        }
-                        if (!confirm('Excluir este lançamento?')) return;
-                        void deleteCashMovement(open.id, m.id)
-                          .then(async () => {
-                            if (m.movementType === 'EMPRESTIMO') {
-                              await cancelCashLoanByBorrowMovement(m.id);
-                            }
-                            refresh();
-                            setInfo('Movimento excluído.');
-                          })
-                          .catch((err: Error) => setError(err.message));
-                      },
-                    },
-                  ];
-                  const time = new Date(m.movedAt).toLocaleTimeString('pt-BR', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  });
-                  return (
-                    <li
-                      key={m.id}
-                      className={`group flex cursor-context-menu items-center gap-2 px-1.5 py-1 hover:bg-white/[0.04] ${tone.row ?? ''}`}
-                      onContextMenu={(e) => openMenu(e, actions)}
+              <>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-2.5">
+                  <div className="flex flex-wrap items-center gap-3 text-xs">
+                    <span className="text-ink-400">
+                      Inicial: <strong className="text-ink-100">R$ {formatMoney(open.openingBalance)}</strong>
+                    </span>
+                    <span className="text-emerald-400">
+                      Entradas: <strong>+ R$ {formatMoney(daySales + daySupplies + dayLoansIn)}</strong>
+                    </span>
+                    <span className="text-rose-400">
+                      Saídas: <strong>− R$ {formatMoney(dayPurchasesTotal + dayOutOther + dayLoansOut)}</strong>
+                    </span>
+                    <span className="rounded bg-brand-500/20 px-2 py-0.5 font-semibold text-brand-300">
+                      Saldo no caixa: R$ {formatMoney(expected)}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <GhostButton
+                      className="!py-1 !text-xs"
+                      onClick={() => downloadCashClosePdf(open)}
+                      title="Baixar extrato completo de auditoria do caixa em PDF"
                     >
-                      <span
-                        className={`w-[4.25rem] shrink-0 truncate rounded px-1 py-0.5 text-center text-[10px] font-medium ${tone.badge}`}
-                        title={movementLabel(m.movementType)}
-                      >
-                        {movementLabel(m.movementType)}
-                      </span>
-                      <div className="min-w-0 flex-1 truncate text-xs text-ink-200">
-                        <span className="text-ink-100">
-                          {m.detail || m.description}
-                        </span>
-                        {m.notes ? (
-                          <span className="text-ink-400"> · {m.notes}</span>
-                        ) : null}
-                      </div>
-                      <span className="shrink-0 text-[10px] text-ink-500">
-                        {time}
-                      </span>
-                      <span
-                        className={`w-20 shrink-0 text-right text-xs font-semibold tabular-nums ${tone.amount}`}
-                      >
-                        {income ? '+' : '−'}
-                        {m.amount.toFixed(2)}
-                      </span>
-                      <button
-                        type="button"
-                        className="shrink-0 rounded p-0.5 text-ink-400 opacity-70 hover:bg-white/10 hover:text-ink-50 group-hover:opacity-100"
-                        title="Menu (editar, comentário, excluir)"
-                        aria-label="Menu do movimento"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          const rect = (
-                            e.currentTarget as HTMLButtonElement
-                          ).getBoundingClientRect();
-                          openAt(rect.right - 160, rect.bottom + 2, actions);
-                        }}
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+                      📄 Baixar Extrato PDF
+                    </GhostButton>
+                    <GhostButton
+                      className="!py-1 !text-xs"
+                      onClick={() =>
+                        void shareCashClosePdfWhatsApp(open)
+                          .then((r) => setInfo(r.hint))
+                          .catch((e) =>
+                            setError(
+                              e instanceof Error
+                                ? e.message
+                                : 'Falha ao abrir WhatsApp',
+                            ),
+                          )
+                      }
+                      title="Enviar extrato por WhatsApp"
+                    >
+                      💬 WhatsApp
+                    </GhostButton>
+                  </div>
+                </div>
+
+                {open.movements.length === 0 ? (
+                  <p className="py-4 text-center text-xs text-ink-300">
+                    Nenhum lançamento neste caixa.
+                  </p>
+                ) : (
+                  <ul className="max-h-[36rem] divide-y divide-white/5 overflow-auto">
+                    {movementsWithRolling.map((m) => {
+                      const tone = movementTone(m.movementType);
+                      const income = isCashIn(m.movementType);
+                      const actions = [
+                        {
+                          id: 'edit',
+                          label: 'Editar',
+                          onSelect: () => {
+                            setEditMov(m);
+                            setEditAmount(String(m.amount));
+                            setEditDesc(m.description);
+                          },
+                        },
+                        {
+                          id: 'comment',
+                          label: 'Comentário',
+                          onSelect: () => {
+                            setCommentMov(m);
+                            setCommentText('');
+                          },
+                        },
+                        {
+                          id: 'del',
+                          label: 'Excluir',
+                          danger: true,
+                          onSelect: () => {
+                            if (m.refType === 'PURCHASE' && m.refId) {
+                              if (
+                                !confirm(
+                                  'Excluir esta compra? Some do caixa e do pátio.',
+                                )
+                              ) {
+                                return;
+                              }
+                              void deletePurchase(m.refId)
+                                .then(() => {
+                                  refresh();
+                                  setInfo('Compra excluída (caixa + pátio).');
+                                })
+                                .catch((err: Error) => setError(err.message));
+                              return;
+                            }
+                            if (!confirm('Excluir este lançamento?')) return;
+                            void deleteCashMovement(open.id, m.id)
+                              .then(async () => {
+                                if (m.movementType === 'EMPRESTIMO') {
+                                  await cancelCashLoanByBorrowMovement(m.id);
+                                }
+                                refresh();
+                                setInfo('Movimento excluído.');
+                              })
+                              .catch((err: Error) => setError(err.message));
+                          },
+                        },
+                      ];
+                      const time = new Date(m.movedAt).toLocaleTimeString(
+                        'pt-BR',
+                        {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        },
+                      );
+                      return (
+                        <li
+                          key={m.id}
+                          className={`group flex cursor-context-menu items-center gap-2 px-1.5 py-1.5 hover:bg-white/[0.04] ${tone.row ?? ''}`}
+                          onContextMenu={(e) => openMenu(e, actions)}
+                        >
+                          <span
+                            className={`w-[4.5rem] shrink-0 truncate rounded px-1 py-0.5 text-center text-[10px] font-medium ${tone.badge}`}
+                            title={movementLabel(m.movementType)}
+                          >
+                            {movementLabel(m.movementType)}
+                          </span>
+                          <div className="min-w-0 flex-1 truncate text-xs text-ink-200">
+                            <span className="font-medium text-ink-100">
+                              {m.detail || m.description}
+                            </span>
+                            {m.notes ? (
+                              <span className="ml-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-200">
+                                Obs: {m.notes}
+                              </span>
+                            ) : null}
+                          </div>
+                          <span className="shrink-0 text-[10px] text-ink-500">
+                            {time}
+                          </span>
+                          <span
+                            className={`w-24 shrink-0 text-right text-xs font-semibold tabular-nums ${tone.amount}`}
+                          >
+                            {income ? '+' : '−'} R$ {m.amount.toFixed(2)}
+                          </span>
+                          <span
+                            className="w-24 shrink-0 text-right text-[11px] font-semibold tabular-nums text-brand-300"
+                            title="Saldo acumulado após este lançamento"
+                          >
+                            R$ {formatMoney(m.balanceAfter)}
+                          </span>
+                          <button
+                            type="button"
+                            className="shrink-0 rounded p-0.5 text-ink-400 opacity-70 hover:bg-white/10 hover:text-ink-50 group-hover:opacity-100"
+                            title="Menu (editar, comentário, excluir)"
+                            aria-label="Menu do movimento"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const rect = (
+                                e.currentTarget as HTMLButtonElement
+                              ).getBoundingClientRect();
+                              openAt(rect.right - 160, rect.bottom + 2, actions);
+                            }}
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </>
             )}
             {open && open.movements.length > 0 && (
               <p className="mt-1.5 px-1 text-[10px] text-ink-500">

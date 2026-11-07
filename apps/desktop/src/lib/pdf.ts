@@ -398,54 +398,303 @@ export function shareSalePdfWhatsApp(sale: SaleRecord) {
 
 function buildCashCloseDoc(cash: CashRegisterRecord) {
   const expected = cash.expectedBalance ?? calcExpected(cash);
+
+  let totalSuprimentos = 0;
+  let totalVendas = 0;
+  let totalEmprestimos = 0;
+  let totalCompras = 0;
+  let totalDespesas = 0;
+  let totalSangrias = 0;
+  let totalDevolucoes = 0;
+  let qtdCompras = 0;
+
+  for (const m of cash.movements) {
+    if (m.voidedAt) continue;
+    switch (m.movementType) {
+      case 'SUPRIMENTO':
+      case 'TROCADO':
+        totalSuprimentos += m.amount;
+        break;
+      case 'VENDA_RECEBIDA':
+      case 'ENTRADA':
+        totalVendas += m.amount;
+        break;
+      case 'EMPRESTIMO':
+        totalEmprestimos += m.amount;
+        break;
+      case 'COMPRA_PAGA':
+        totalCompras += m.amount;
+        qtdCompras++;
+        break;
+      case 'DESPESA':
+        totalDespesas += m.amount;
+        break;
+      case 'SANGRIA':
+      case 'SAIDA':
+        totalSangrias += m.amount;
+        break;
+      case 'DEVOLUCAO_EMPRESTIMO':
+        totalDevolucoes += m.amount;
+        break;
+    }
+  }
+
+  const diferenca =
+    cash.informedBalance !== undefined ? cash.informedBalance - expected : 0;
+
   const content: PdfContent[] = [
-    ...companyHeader('Fechamento de caixa'),
-    { text: 'Resumo do dia', style: 'section' },
+    ...companyHeader('Extrato e Fechamento de Caixa'),
+    { text: 'Identificação da Sessão', style: 'section' },
     kv([
-      ['Aberto em', dt(cash.openedAt)],
-      ['Fechado em', cash.closedAt ? dt(cash.closedAt) : '—'],
+      ['Data de Abertura', dt(cash.openedAt)],
+      ['Fechamento', cash.closedAt ? dt(cash.closedAt) : 'EM ABERTO (Parcial)'],
       ['Operador', cash.openedBy || '—'],
-      ['Saldo inicial', money(cash.openingBalance)],
-      ['Saldo esperado', money(expected)],
-      ['Saldo contado', money(cash.informedBalance ?? 0)],
-      ['Diferença', money(cash.difference ?? 0)],
+      ['Observações / Notas', cash.notes || '—'],
     ]),
+    { text: 'Resumo Financeiro da Gaveta', style: 'section' },
+    {
+      table: {
+        widths: ['*', 'auto'],
+        body: [
+          [th('Rubrica / Movimentação'), th('Valor (R$)')],
+          [
+            'Saldo Inicial na Abertura',
+            { text: money(cash.openingBalance), bold: true, alignment: 'right' },
+          ],
+          [
+            '(+) Trocados e Suprimentos Adicionados',
+            {
+              text: `+ ${money(totalSuprimentos)}`,
+              color: PDF_COLORS.sale,
+              alignment: 'right',
+            },
+          ],
+          ...(totalVendas > 0
+            ? ([
+                [
+                  '(+) Vendas em Dinheiro Recebidas no Caixa',
+                  {
+                    text: `+ ${money(totalVendas)}`,
+                    color: PDF_COLORS.sale,
+                    alignment: 'right',
+                  },
+                ],
+              ] as [unknown, unknown][])
+            : []),
+          ...(totalEmprestimos > 0
+            ? ([
+                [
+                  '(+) Peguei Emprestado',
+                  {
+                    text: `+ ${money(totalEmprestimos)}`,
+                    color: PDF_COLORS.sale,
+                    alignment: 'right',
+                  },
+                ],
+              ] as [unknown, unknown][])
+            : []),
+          [
+            `(−) Compras de Sucata Pagas (${qtdCompras} compras)`,
+            {
+              text: `− ${money(totalCompras)}`,
+              color: PDF_COLORS.buy,
+              alignment: 'right',
+            },
+          ],
+          ...(totalDespesas > 0
+            ? ([
+                [
+                  '(−) Despesas e Gastos Operacionais',
+                  {
+                    text: `− ${money(totalDespesas)}`,
+                    color: PDF_COLORS.buy,
+                    alignment: 'right',
+                  },
+                ],
+              ] as [unknown, unknown][])
+            : []),
+          ...(totalSangrias > 0
+            ? ([
+                [
+                  '(−) Sangrias e Retiradas do Caixa',
+                  {
+                    text: `− ${money(totalSangrias)}`,
+                    color: PDF_COLORS.buy,
+                    alignment: 'right',
+                  },
+                ],
+              ] as [unknown, unknown][])
+            : []),
+          ...(totalDevolucoes > 0
+            ? ([
+                [
+                  '(−) Devoluções de Empréstimo',
+                  {
+                    text: `− ${money(totalDevolucoes)}`,
+                    color: PDF_COLORS.buy,
+                    alignment: 'right',
+                  },
+                ],
+              ] as [unknown, unknown][])
+            : []),
+          [
+            {
+              text: '(=) Saldo Esperado Final no Caixa',
+              bold: true,
+              fillColor: '#f1f5f9',
+            },
+            {
+              text: money(expected),
+              bold: true,
+              alignment: 'right',
+              fillColor: '#f1f5f9',
+              fontSize: 11,
+            },
+          ],
+          [
+            { text: 'Dinheiro Físico Contado na Gaveta', bold: true },
+            {
+              text: money(cash.informedBalance ?? 0),
+              bold: true,
+              alignment: 'right',
+              fontSize: 11,
+            },
+          ],
+          [
+            { text: 'Diferença Final (Contado − Esperado)', bold: true },
+            {
+              text: `${diferenca > 0 ? '+ ' : ''}${money(diferenca)} (${
+                Math.abs(diferenca) < 0.01
+                  ? 'Batendo certinho'
+                  : diferenca > 0
+                    ? 'Sobra'
+                    : 'Falta'
+              })`,
+              bold: true,
+              alignment: 'right',
+              color:
+                Math.abs(diferenca) < 0.01
+                  ? PDF_COLORS.sale
+                  : diferenca > 0
+                    ? PDF_COLORS.supply
+                    : PDF_COLORS.buy,
+            },
+          ],
+        ].map((r, i) =>
+          i === 0
+            ? r
+            : [
+                typeof r[0] === 'string' ? { text: r[0], style: 'body' } : r[0],
+                typeof r[1] === 'string'
+                  ? { text: r[1], style: 'body', alignment: 'right' }
+                  : r[1],
+              ],
+        ),
+      },
+      layout: 'lightHorizontalLines',
+    },
   ];
 
   if (cash.differenceReason) {
     content.push({
       text: `Justificativa da diferença: ${cash.differenceReason}`,
       style: 'body',
-      margin: [0, 4, 0, 0],
-    });
-  }
-  if (cash.notes) {
-    content.push({
-      text: `Observações da abertura / caixa: ${cash.notes}`,
-      style: 'body',
-      margin: [0, 2, 0, 0],
+      bold: true,
+      margin: [0, 6, 0, 0],
     });
   }
 
-  content.push({ text: 'Movimentos', style: 'section' });
+  content.push({
+    text: 'Extrato Cronológico Completo (Entradas, Saídas e Saldo Acumulado)',
+    style: 'section',
+    margin: [0, 10, 0, 4],
+  });
+
   if (!cash.movements.length) {
     content.push(emptyTableNote('Nenhum movimento neste caixa.'));
   } else {
+    const sorted = [...cash.movements].sort(
+      (a, b) => new Date(a.movedAt).getTime() - new Date(b.movedAt).getTime(),
+    );
+
+    let rolling = cash.openingBalance;
+    const rows = sorted.map((m) => {
+      const isVoid = Boolean(m.voidedAt);
+      const isInc = [
+        'SUPRIMENTO',
+        'ENTRADA',
+        'VENDA_RECEBIDA',
+        'TROCADO',
+        'EMPRESTIMO',
+      ].includes(m.movementType);
+
+      if (!isVoid) {
+        if (isInc) rolling += m.amount;
+        else rolling -= m.amount;
+      }
+      rolling = Math.round(rolling * 100) / 100;
+
+      const descParts: string[] = [];
+      if (m.description) descParts.push(m.description);
+      if (m.detail && m.detail !== m.description) descParts.push(m.detail);
+      if (m.notes) descParts.push(`Obs: ${m.notes}`);
+      if (isVoid) {
+        descParts.push(`[ANULADO${m.voidReason ? `: ${m.voidReason}` : ''}]`);
+      }
+
+      return [
+        { text: dt(m.movedAt).replace(' ', '\n'), style: 'meta', fontSize: 8 },
+        {
+          text: movTypeLabel(m.movementType),
+          style: 'body',
+          fontSize: 8,
+          color: isInc ? PDF_COLORS.sale : PDF_COLORS.buy,
+        },
+        {
+          text: isInc ? `+ ${money(m.amount)}` : '—',
+          style: 'body',
+          fontSize: 8,
+          alignment: 'right',
+          color: isInc ? PDF_COLORS.sale : PDF_COLORS.muted,
+        },
+        {
+          text: !isInc ? `− ${money(m.amount)}` : '—',
+          style: 'body',
+          fontSize: 8,
+          alignment: 'right',
+          color: !isInc ? PDF_COLORS.buy : PDF_COLORS.muted,
+        },
+        {
+          text: money(rolling),
+          style: 'body',
+          fontSize: 8,
+          bold: true,
+          alignment: 'right',
+        },
+        {
+          text: descParts.join(' · '),
+          style: 'body',
+          fontSize: 8,
+          decoration: isVoid ? 'lineThrough' : undefined,
+          color: isVoid ? PDF_COLORS.muted : undefined,
+        },
+      ];
+    });
+
     content.push({
       table: {
-        widths: ['auto', 'auto', 'auto', '*'],
+        widths: [65, 65, 55, 55, 60, '*'],
         headerRows: 1,
         body: [
-          [th('Quando'), th('Tipo'), th('Valor'), th('Descrição')],
-          ...cash.movements.map((m) => [
-            { text: dt(m.movedAt), style: 'meta' },
-            { text: movTypeLabel(m.movementType), style: 'body' },
-            { text: money(m.amount), style: 'body', alignment: 'right' },
-            {
-              text: [m.description, m.detail].filter(Boolean).join(' · '),
-              style: 'body',
-            },
-          ]),
+          [
+            th('Data/Hora'),
+            th('Operação'),
+            th('Entrada (+)'),
+            th('Saída (−)'),
+            th('Saldo Caixa'),
+            th('Descrição, Itens e Observações'),
+          ],
+          ...rows,
         ],
       },
       layout: 'lightHorizontalLines',
@@ -453,7 +702,12 @@ function buildCashCloseDoc(cash: CashRegisterRecord) {
   }
 
   content.push(docFooter());
-  return { pageSize: pageSize(), content, styles, defaultStyle: { fontSize: 10 } };
+  return {
+    pageSize: pageSize(),
+    content,
+    styles,
+    defaultStyle: { fontSize: 10 },
+  };
 }
 
 export function downloadCashClosePdf(cash: CashRegisterRecord) {
@@ -501,6 +755,9 @@ type FinanceDayPdfInput = {
     amount: number;
     description: string;
     detail?: string;
+    notes?: string;
+    voidedAt?: string;
+    voidReason?: string;
     isCut?: boolean;
   }>;
 };
@@ -576,57 +833,105 @@ function buildFinanceDayDoc(day: FinanceDayPdfInput) {
     });
   }
 
-  content.push({ text: 'Movimentos do dia', style: 'section' });
+  content.push({ text: 'Extrato Cronológico Detalhado de Movimentos', style: 'section' });
   if (!day.movements.length) {
     content.push(emptyTableNote('Sem movimentos.'));
   } else {
+    let rolling = day.openingBalance;
     content.push({
       table: {
-        widths: ['auto', 'auto', 'auto', '*'],
+        widths: [65, 65, 55, 55, 60, '*'],
         headerRows: 1,
         body: [
-          [th('Quando'), th('Tipo'), th('Valor'), th('Descrição')],
-          ...day.movements.map((m) =>
-            m.isCut
-              ? [
-                  {
-                    text: m.description,
-                    colSpan: 4,
-                    alignment: 'center',
-                    bold: true,
-                    color: PDF_COLORS.cut,
-                    fillColor: PDF_COLORS.cutBg,
-                    fontSize: 9,
-                    margin: [0, 4, 0, 4],
-                  },
-                  {},
-                  {},
-                  {},
-                ]
-              : [
-                  { text: dt(m.movedAt), style: 'meta' },
-                  {
-                    text: movTypeLabel(m.movementType),
-                    style: 'body',
-                    color:
-                      m.movementType === 'DESPESA' ||
-                      m.movementType === 'COMPRA_PAGA'
-                        ? PDF_COLORS.buy
-                        : m.movementType === 'VENDA_RECEBIDA' ||
-                            m.movementType === 'TROCADO'
-                          ? PDF_COLORS.sale
-                          : m.movementType === 'SUPRIMENTO' ||
-                              m.movementType === 'ENTRADA'
-                            ? PDF_COLORS.supply
-                            : undefined,
-                  },
-                  { text: money(m.amount), style: 'body', alignment: 'right' },
-                  {
-                    text: [m.description, m.detail].filter(Boolean).join(' · '),
-                    style: 'body',
-                  },
-                ],
-          ),
+          [
+            th('Data/Hora'),
+            th('Operação'),
+            th('Entrada (+)'),
+            th('Saída (−)'),
+            th('Saldo Caixa'),
+            th('Descrição, Itens e Observações'),
+          ],
+          ...day.movements.map((m) => {
+            if (m.isCut) {
+              return [
+                {
+                  text: m.description,
+                  colSpan: 6,
+                  alignment: 'center',
+                  bold: true,
+                  color: PDF_COLORS.cut,
+                  fillColor: PDF_COLORS.cutBg,
+                  fontSize: 8,
+                  margin: [0, 3, 0, 3],
+                },
+                {},
+                {},
+                {},
+                {},
+                {},
+              ];
+            }
+            const isVoid = Boolean(m.voidedAt);
+            const isInc = [
+              'SUPRIMENTO',
+              'ENTRADA',
+              'VENDA_RECEBIDA',
+              'TROCADO',
+              'EMPRESTIMO',
+            ].includes(m.movementType);
+
+            if (!isVoid) {
+              if (isInc) rolling += m.amount;
+              else rolling -= m.amount;
+            }
+            rolling = Math.round(rolling * 100) / 100;
+
+            const descParts: string[] = [];
+            if (m.description) descParts.push(m.description);
+            if (m.detail && m.detail !== m.description) descParts.push(m.detail);
+            if (m.notes) descParts.push(`Obs: ${m.notes}`);
+            if (isVoid) {
+              descParts.push(`[ANULADO${m.voidReason ? `: ${m.voidReason}` : ''}]`);
+            }
+
+            return [
+              { text: dt(m.movedAt).replace(' ', '\n'), style: 'meta', fontSize: 8 },
+              {
+                text: movTypeLabel(m.movementType),
+                style: 'body',
+                fontSize: 8,
+                color: isInc ? PDF_COLORS.sale : PDF_COLORS.buy,
+              },
+              {
+                text: isInc ? `+ ${money(m.amount)}` : '—',
+                style: 'body',
+                fontSize: 8,
+                alignment: 'right',
+                color: isInc ? PDF_COLORS.sale : PDF_COLORS.muted,
+              },
+              {
+                text: !isInc ? `− ${money(m.amount)}` : '—',
+                style: 'body',
+                fontSize: 8,
+                alignment: 'right',
+                color: !isInc ? PDF_COLORS.buy : PDF_COLORS.muted,
+              },
+              {
+                text: money(rolling),
+                style: 'body',
+                fontSize: 8,
+                bold: true,
+                alignment: 'right',
+              },
+              {
+                text: descParts.join(' · '),
+                style: 'body',
+                fontSize: 8,
+                decoration: isVoid ? 'lineThrough' : undefined,
+                color: isVoid ? PDF_COLORS.muted : undefined,
+              },
+            ];
+          }),
         ],
       },
       layout: 'lightHorizontalLines',
