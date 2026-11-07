@@ -90,7 +90,7 @@ function sumMovements(
   types: CashMovement['movementType'][],
 ) {
   return movements
-    .filter((m) => types.includes(m.movementType))
+    .filter((m) => !m.voidedAt && types.includes(m.movementType))
     .reduce((acc, m) => acc + m.amount, 0);
 }
 
@@ -394,9 +394,7 @@ export function CashOpsPage() {
     void closeCash({
       cashId: cash.id,
       informedBalance:
-        informed.trim() === ''
-          ? expectedNow
-          : Number(informed.replace(',', '.')) || 0,
+        informed.trim() === '' ? expectedNow : parseMoney(informed),
       differenceReason: reason,
       requireReason: settings['cash.requireDifferenceReason'],
     })
@@ -1078,6 +1076,19 @@ export function CashOpsPage() {
             </p>
           </div>
 
+          {suggested.wasNegative && (
+            <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-950/40 p-3 text-xs text-amber-200">
+              <strong className="block font-semibold text-amber-100">
+                Atenção ao saldo do dia anterior
+              </strong>
+              O último fechamento terminou negativo (R$ {formatMoney(suggested.originalNegativeAmount ?? 0)}),
+              geralmente causado por compras pagas em dinheiro sem registrar o trocado recebido (F9).
+              Para não contaminar o caixa de hoje, o saldo foi ajustado para começar com{' '}
+              {openBaseAmount > 0 ? `R$ ${formatMoney(openBaseAmount)}` : 'R$ 0,00'}.
+              Confira as cédulas na gaveta e ajuste abaixo se necessário.
+            </div>
+          )}
+
           <ol className="mt-5 space-y-4">
             <li className="rounded-xl border border-white/10 bg-ink-900/50 p-3.5">
               <div className="flex items-start gap-3">
@@ -1096,7 +1107,7 @@ export function CashOpsPage() {
                   <p className="mt-1 text-xs text-ink-400">
                     {suggested.source === 'last_close'
                       ? 'É o valor do último fechamento. Se não mexer em nada, o caixa abre com esse total.'
-                      : 'Ainda não há fechamento anterior — usamos o valor padrão das configurações.'}
+                      : 'Usando saldo padrão configurado para abertura.'}
                   </p>
                 </div>
               </div>
@@ -1114,13 +1125,14 @@ export function CashOpsPage() {
                         Quer colocar mais dinheiro? (opcional)
                       </p>
                       <p className="mt-0.5 text-xs text-ink-400">
-                        Ex.: entrou com trocado novo. Deixe em branco se for só o
-                        saldo de cima.
+                        Ex.: entrou trocado novo. Digite o valor (ex.: 300 ou 300,00).
                       </p>
-                      <MoneyInput
-                        className={`${fieldClass} !mt-2 w-full max-w-[14rem] !py-2.5 text-base`}
+                      <input
+                        className={`${fieldClass} !mt-2 w-full max-w-[14rem] !py-2.5 text-base font-semibold`}
+                        inputMode="decimal"
+                        placeholder="0,00"
                         value={extraOpening}
-                        onValueChange={setExtraOpening}
+                        onChange={(e) => setExtraOpening(e.target.value)}
                         aria-label="Adicionar mais ao caixa"
                       />
                     </div>
@@ -1141,7 +1153,7 @@ export function CashOpsPage() {
                       </p>
                       <p className="mt-1 text-xs text-ink-300">
                         {openExtraAmount > 0
-                          ? `R$ ${formatMoney(openBaseAmount)} de ontem + R$ ${formatMoney(openExtraAmount)} a mais`
+                          ? `R$ ${formatMoney(openBaseAmount)} sugerido + R$ ${formatMoney(openExtraAmount)} a mais`
                           : `Mesmo valor do passo 1 — sem adicional.`}
                       </p>
                       <button
@@ -1149,7 +1161,7 @@ export function CashOpsPage() {
                         className="mt-2 text-xs text-ink-400 underline-offset-2 hover:text-brand-300 hover:underline"
                         onClick={() => {
                           setOpenManualMode(true);
-                          setManualOpening(String(totalToOpen));
+                          setManualOpening(totalToOpen > 0 ? String(totalToOpen) : '');
                         }}
                       >
                         O saldo está diferente? Informar outro valor
@@ -1168,10 +1180,15 @@ export function CashOpsPage() {
                     <p className="text-sm font-semibold text-ink-50">
                       Digite o valor total que tem no caixa agora
                     </p>
-                    <MoneyInput
-                      className={`${fieldClass} !mt-2 w-full max-w-[14rem] !py-2.5 text-base`}
+                    <p className="mt-0.5 text-xs text-ink-400">
+                      Ex.: digite 300 ou 300,00.
+                    </p>
+                    <input
+                      className={`${fieldClass} !mt-2 w-full max-w-[14rem] !py-2.5 text-base font-semibold`}
+                      inputMode="decimal"
+                      placeholder="0,00"
                       value={manualOpening}
-                      onValueChange={setManualOpening}
+                      onChange={(e) => setManualOpening(e.target.value)}
                     />
                     <button
                       type="button"
@@ -1181,7 +1198,7 @@ export function CashOpsPage() {
                         setExtraOpening('');
                       }}
                     >
-                      Voltar: usar ontem + adicionar trocados
+                      Voltar: usar saldo anterior + adicionar trocados
                     </button>
                   </div>
                 </div>
@@ -1322,6 +1339,26 @@ export function CashOpsPage() {
           </span>
         )}
       </div>
+
+      {expected < 0 && (
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-950/40 px-3 py-2.5 text-sm text-amber-200">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-amber-100">
+              ⚠️ Saldo negativo no caixa: R$ {formatMoney(expected)}
+            </span>
+            <span className="text-xs text-amber-300/90">
+              Foram pagas compras em dinheiro sem antes registrar a entrada do trocado no gaveteiro.
+            </span>
+          </div>
+          <button
+            type="button"
+            className="rounded-md bg-amber-500 px-3 py-1 text-xs font-semibold text-ink-950 shadow-sm hover:bg-amber-400 active:scale-95"
+            onClick={openTrocadoModal}
+          >
+            + Registrar trocado recebido (F9)
+          </button>
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-1">
         {tabs.map((t) => (
@@ -2258,16 +2295,50 @@ export function CashOpsPage() {
                   Quanto tem no caixa agora? (contado)
                 </span>
                 <span className="mt-0.5 block text-[11px] text-ink-500">
-                  Em branco = usa o esperado (R$ {formatMoney(expected)}).
+                  Em branco = usa o esperado (R$ {formatMoney(expected)}). Digite o valor contado (ex.: 300 ou 300,00).
                 </span>
-                <MoneyInput
-                  inputRef={closeFocusRef}
-                  className={`${fieldClass} !mt-1.5 !py-2.5 text-base`}
+                <input
+                  ref={closeFocusRef}
+                  className={`${fieldClass} !mt-1.5 !py-2.5 text-base font-semibold`}
+                  inputMode="decimal"
                   placeholder={formatMoney(expected)}
                   value={informed}
-                  onValueChange={setInformed}
+                  onChange={(e) => setInformed(e.target.value)}
                 />
               </label>
+
+              {(() => {
+                const informedVal =
+                  informed.trim() === '' ? expected : parseMoney(informed);
+                const diffLive =
+                  Math.round((informedVal - expected) * 100) / 100;
+                if (Math.abs(diffLive) < 0.01) {
+                  return (
+                    <div className="rounded-lg border border-moss-500/40 bg-moss-900/30 p-2.5 text-xs text-moss-300">
+                      ✓ <strong>Caixa batendo certinho!</strong> O valor contado coincide exatamente com o esperado.
+                    </div>
+                  );
+                }
+                if (diffLive > 0) {
+                  return (
+                    <div className="rounded-lg border border-sky-500/40 bg-sky-950/40 p-2.5 text-xs text-sky-200">
+                      <strong className="block text-sky-100">
+                        ▲ Sobra de R$ {formatMoney(diffLive)} no gaveteiro
+                      </strong>
+                      Há mais dinheiro físico do que o esperado pelo sistema. Verifique se entrou algum trocado ou venda em dinheiro sem lançar no F9.
+                    </div>
+                  );
+                }
+                return (
+                  <div className="rounded-lg border border-amber-500/40 bg-amber-950/40 p-2.5 text-xs text-amber-200">
+                    <strong className="block text-amber-100">
+                      ▼ Falta de R$ {formatMoney(Math.abs(diffLive))} no gaveteiro
+                    </strong>
+                    Esperado R$ {formatMoney(expected)}, mas foram contados R$ {formatMoney(informedVal)}. Informe o motivo no campo abaixo.
+                  </div>
+                );
+              })()}
+
               <label className="block">
                 <span className="text-xs font-medium text-ink-200">
                   Justificativa se der diferença
@@ -2331,10 +2402,11 @@ export function CashOpsPage() {
           <div className="w-full max-w-md rounded-xl border border-white/15 bg-ink-800 p-4">
             <h3 className="font-semibold">Editar lançamento</h3>
             <Field label="Valor">
-              <MoneyInput
+              <input
                 className={fieldClass}
+                inputMode="decimal"
                 value={editAmount}
-                onValueChange={setEditAmount}
+                onChange={(e) => setEditAmount(e.target.value)}
               />
             </Field>
             <Field label="Descrição">
@@ -2348,7 +2420,7 @@ export function CashOpsPage() {
               <PrimaryButton
                 onClick={() => {
                   void updateCashMovement(open.id, editMov.id, {
-                    amount: Number(editAmount.replace(',', '.')) || 0,
+                    amount: parseMoney(editAmount),
                     description: editDesc,
                   })
                     .then(() => {

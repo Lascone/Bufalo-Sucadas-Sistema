@@ -512,6 +512,12 @@ export function SettingsPage() {
                 }
               />
             </Field>
+            <Switch
+              label="Sempre abrir com o saldo padrão (não herdar saldo anterior)"
+              hint="Recomendado quando o operador recebe um trocado fixo a cada abertura ou recolhe o gaveteiro ao fechar."
+              checked={Boolean(form['cash.openWithDefault'])}
+              onChange={(v) => setField('cash.openWithDefault', v)}
+            />
             <Field label="Horário de fechamento automático">
               <input
                 className={fieldClass}

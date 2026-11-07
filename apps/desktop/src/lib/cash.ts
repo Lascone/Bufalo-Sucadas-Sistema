@@ -97,20 +97,42 @@ export function getLastClosedCash(): CashRegisterRecord | undefined {
   return listCashRegisters().find((c) => c.status === 'CLOSED');
 }
 
-/** Saldo sugerido na próxima abertura = informado no último fechamento (o que sobrou). */
+/** Saldo sugerido na próxima abertura = informado no último fechamento (o que sobrou) ou padrão. */
 export function getSuggestedOpeningBalance(): {
   amount: number;
   fromCash?: CashRegisterRecord;
   source: 'last_close' | 'settings';
+  wasNegative?: boolean;
 } {
+  const settings = getSettings();
+  if (
+    settings['cash.openWithDefault'] &&
+    (settings['cash.defaultOpeningBalance'] ?? 0) > 0
+  ) {
+    return {
+      amount: settings['cash.defaultOpeningBalance'] ?? 0,
+      source: 'settings',
+      wasNegative: false,
+    };
+  }
+
   const last = getLastClosedCash();
   if (last && last.informedBalance !== undefined) {
-    return { amount: last.informedBalance, fromCash: last, source: 'last_close' };
+    const wasNegative = last.informedBalance < 0;
+    const defaultBal = settings['cash.defaultOpeningBalance'] ?? 0;
+    // Se o caixa anterior fechou no negativo, nunca sugerir saldo negativo para gaveta física
+    const amount = wasNegative ? defaultBal : last.informedBalance;
+    return {
+      amount,
+      fromCash: last,
+      source: wasNegative && defaultBal > 0 ? 'settings' : 'last_close',
+      wasNegative,
+    };
   }
-  const settings = getSettings();
   return {
     amount: settings['cash.defaultOpeningBalance'] ?? 0,
     source: 'settings',
+    wasNegative: false,
   };
 }
 

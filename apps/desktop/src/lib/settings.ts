@@ -12,6 +12,8 @@ export type AppSettings = {
   'cash.requireDifferenceReason': boolean;
   'cash.allowMultipleOpen': boolean;
   'cash.defaultOpeningBalance': number;
+  /** Se true, sugere sempre o defaultOpeningBalance em vez de herdar o saldo do dia anterior */
+  'cash.openWithDefault': boolean;
   /** manual = operador abre na tela do caixa; auto = abre sozinho ao ligar / após fechar o dia */
   'cash.openMode': 'manual' | 'auto';
   /** auto = fecha no horário e fecha dia anterior ao religar; manual = só fecha na tela */
@@ -44,6 +46,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   'cash.requireDifferenceReason': true,
   'cash.allowMultipleOpen': false,
   'cash.defaultOpeningBalance': 0,
+  'cash.openWithDefault': false,
   'cash.openMode': 'manual',
   'cash.closeMode': 'auto',
   'cash.autoCloseEnabled': true,

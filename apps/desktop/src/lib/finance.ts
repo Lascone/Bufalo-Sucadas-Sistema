@@ -322,10 +322,21 @@ export function groupFinanceDaysByBusinessDate(
     const totals = calcDayTotals(movements);
 
     const openingBalance = first.openingBalance;
-    // Esperado do dia = inicial do 1º + efeito líquido de todos os movimentos (ignora anulados)
+    // Ajuste: se houve reaberturas no mesmo dia com reforço/alteração de abertura em relação ao fechamento da sessão anterior
+    let extraOpenings = 0;
+    for (let i = 1; i < sessions.length; i++) {
+      const prevInformed = sessions[i - 1]?.informedBalance ?? 0;
+      const currOpening = sessions[i]?.openingBalance ?? 0;
+      if (currOpening !== prevInformed) {
+        extraOpenings += currOpening - prevInformed;
+      }
+    }
+
+    // Esperado do dia = inicial do 1º + reforços de abertura + efeito líquido de todos os movimentos (ignora anulados)
     const expectedBalance =
       Math.round(
         (openingBalance +
+          extraOpenings +
           movements.reduce((acc, m) => {
             if (m.voidedAt) return acc;
             const t = m.movementType;
