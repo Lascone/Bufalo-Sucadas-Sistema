@@ -645,7 +645,7 @@ export function FinancePage() {
   );
   const selectedGroup = selectedBusinessDate
     ? dayGroups.find((g) => g.businessDate === selectedBusinessDate) ?? null
-    : null;
+    : dayGroups[0] ?? null;
   const selectedActive = selectedGroup?.sessions[selectedGroup.sessions.length - 1] ?? null;
 
   const availableDays = useMemo(
@@ -1429,17 +1429,18 @@ export function FinancePage() {
                             : ''}
                         </p>
                       </div>
-                      <div className="flex gap-1.5">
-                        <GhostButton
-                          className="!py-1 text-xs"
+                      <div className="flex gap-2">
+                        <PrimaryButton
+                          className="!bg-brand-500 !py-1.5 !px-3 text-xs font-semibold text-ink-950 shadow-sm hover:!bg-brand-400"
                           onClick={() =>
                             downloadFinanceDayPdf(groupToPdfInput(selectedGroup))
                           }
+                          title="Baixar extrato completo de auditoria do caixa em PDF"
                         >
-                          PDF
-                        </GhostButton>
+                          📄 Baixar Extrato PDF
+                        </PrimaryButton>
                         <GhostButton
-                          className="!py-1 text-xs"
+                          className="!py-1.5 text-xs"
                           onClick={() =>
                             void shareFinanceDayPdfWhatsApp(
                               groupToPdfInput(selectedGroup),
@@ -1448,6 +1449,8 @@ export function FinancePage() {
                               .catch(shareFail)
                           }
                         >
+                          WhatsApp
+                        </GhostButton>
                           WhatsApp
                         </GhostButton>
                         <GhostButton

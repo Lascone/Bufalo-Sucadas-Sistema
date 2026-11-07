@@ -990,6 +990,16 @@ export function CashOpsPage() {
               F8
             </kbd>
           </button>
+          {open && (
+            <button
+              type="button"
+              onClick={() => downloadCashClosePdf(open)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-white/20 bg-ink-800 px-3 py-2 text-xs font-semibold text-ink-100 shadow-sm transition hover:bg-white/10 hover:text-white"
+              title="Baixar extrato completo de auditoria do caixa em PDF"
+            >
+              📄 Extrato PDF
+            </button>
+          )}
         </>
       ) : null}
       <button
